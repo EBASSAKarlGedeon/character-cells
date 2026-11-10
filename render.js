@@ -7,7 +7,11 @@ export function renderStateHtml(state) {
     const world = state.world || { notes: [], time: '', turn: 0 };
 
     const tiers = { main: [], secondary: [], minor: [], offstage: [] };
-    for (const c of cells) (tiers[c.tier] || tiers.minor).push(c);
+    const userCell = cells.find(c => c.id === 'user');
+    for (const c of cells) {
+        if (c.id === 'user') continue; // user has its own pinned section
+        (tiers[c.tier] || tiers.minor).push(c);
+    }
 
     const esc = escapeHtml;
 
@@ -40,8 +44,9 @@ export function renderStateHtml(state) {
   </details>
 
   <details>
-    <summary>👤 CHARACTERS (${cells.length})</summary>
+    <summary>👤 CHARACTERS (${cells.length - (userCell ? 1 : 0)})</summary>
     <div class="cc-body">
+      ${userCell ? userDetailsCell(userCell, esc) : ''}
       <details class="cc-tier"><summary>🥇 Main (${tiers.main.length})</summary><div class="cc-body">${cellSections(tiers.main, 'No main characters.')}</div></details>
       <details class="cc-tier"><summary>🥈 Secondary (${tiers.secondary.length})</summary><div class="cc-body">${cellSections(tiers.secondary, 'None.')}</div></details>
       <details class="cc-tier"><summary>🥉 Minor (${tiers.minor.length})</summary><div class="cc-body">${cellSections(tiers.minor, 'None.')}</div></details>
@@ -58,6 +63,19 @@ export function renderStateHtml(state) {
     <div class="cc-body">${cellThoughts(cells, esc)}</div>
   </details>
 </div>`;
+}
+
+/** The user's own cell — personal inventory/titles/status only (FF5 <internal_inv> scope). */
+function userDetailsCell(c, esc) {
+    return `
+    <details class="cc-cell cc-user-cell" data-cell-id="${esc(c.id)}">
+      <summary>🎒 ${esc(c.name)} <span class="cc-user-tag">(you — personal inventory)</span></summary>
+      <div class="cc-body">
+        <div class="cc-field"><label>Status</label><span contenteditable="true" data-field="status">${esc(c.status || '')}</span></div>
+        <div class="cc-field"><label>Inventory</label><span contenteditable="true" data-field="inventory">${esc((c.inventory || []).join(', '))}</span></div>
+        <div class="cc-field"><label>Titles / Skills</label><span contenteditable="true" data-field="titles">${esc((c.titles || []).join(', '))}</span></div>
+      </div>
+    </details>`;
 }
 
 function cellThoughts(cells, esc) {

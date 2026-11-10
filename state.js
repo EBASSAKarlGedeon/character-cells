@@ -2,18 +2,22 @@
 // Slice 1: per-chat state file (character cells + world threads), stored in chat_metadata
 // so it rides along with the existing chat save/sync with zero new plumbing.
 
-import { chat_metadata } from '../../../script.js';
+import { chat_metadata, name1 } from '../../../script.js';
 
 const STATE_KEY = 'character_cells';
 
 /** @typedef {'main'|'secondary'|'minor'|'offstage'} Tier */
 
+/** The user is a fixed cell: always present, never tiered/promoted/deleted. */
+export const USER_CELL_ID = 'user';
+
 /**
  * Fresh cell for a character. Everything optional except id/tier/name.
  * @returns {object}
  */
-export function makeCell(name, tier = 'minor') {
+export function makeCell(name, tier = 'minor', fixed = false) {
     return {
+        fixed: fixed,
         id: slug(name),
         name: name,
         tier: tier, // main / secondary / minor / offstage
@@ -46,7 +50,12 @@ export function getState() {
     if (!chat_metadata[STATE_KEY]) {
         chat_metadata[STATE_KEY] = { version: 1, world: makeWorldState(), cells: [] };
     }
-    return chat_metadata[STATE_KEY];
+    const s = chat_metadata[STATE_KEY];
+    // The user cell always exists (FF5: inventory/titles/status tracked for {{user}} only).
+    if (!s.cells.some(c => c.id === USER_CELL_ID)) {
+        s.cells.unshift(makeCell(name1 || USER_CELL_ID, 'main', true));
+    }
+    return s;
 }
 
 export function saveStateRef() {
@@ -69,12 +78,14 @@ export function addCell(name, tier = 'minor') {
 }
 
 export function setTier(id, tier) {
+    if (id === USER_CELL_ID) return null; // user cell is never tiered
     const cell = findCell(id);
     if (cell) cell.tier = tier;
     return cell;
 }
 
 export function removeCell(id) {
+    if (id === USER_CELL_ID) return; // protected
     const s = getState();
     const i = s.cells.findIndex(c => c.id === id);
     if (i >= 0) s.cells.splice(i, 1);

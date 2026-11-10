@@ -202,8 +202,9 @@ function registerSlashCommands() {
             description: 'character name', typeList: [ARGUMENT_TYPE.STRING], isRequired: true,
         })],
         callback: (_args, name) => {
+            if (slugOf(String(name)) === 'user') return 'The user cell cannot be promoted or demoted.';
             const ladder = ['offstage', 'minor', 'secondary', 'main'];
-            const cell = findCell(slugOf(name)) || findCell(slugOf(String(name)));
+            const cell = findCell(slugOf(String(name)));
             if (!cell) return `No character "${name}" in state. Use /cc-add first.`;
             const i = ladder.indexOf(cell.tier);
             cell.tier = ladder[Math.min(i + 1, ladder.length - 1)];
@@ -219,6 +220,7 @@ function registerSlashCommands() {
             description: 'character name', typeList: [ARGUMENT_TYPE.STRING], isRequired: true,
         })],
         callback: (_args, name) => {
+            if (slugOf(String(name)) === 'user') return 'The user cell cannot be promoted or demoted.';
             const ladder = ['offstage', 'minor', 'secondary', 'main'];
             const cell = findCell(slugOf(String(name)));
             if (!cell) return `No character "${name}" in state.`;
