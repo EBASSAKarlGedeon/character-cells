@@ -78,33 +78,75 @@ function bindPanelEvents($root) {
         saveChatDebounced();
     });
 
-    $root.on('click.cc', '[data-add-char]', function () {
-        const $inp = $root.find('.cc-char-new-name');
-        const name = $inp.val().trim();
-        if (name) { addCell(name, 'minor'); $inp.val(''); refreshPanelIfOpen(); saveChatDebounced(); }
+    $root.on('click.cc', '[data-add-faction]', function () {
+        const name = $root.find('[data-sec="factions"] .cc-new').val().trim();
+        if (name) {
+            getState().world.factions.push({ id: uid(), name, goal: '', intel: '', fibs: '', fstate: '', conflict: '', relations: '' });
+            $root.find('[data-sec="factions"] .cc-new').val('');
+            refreshPanelIfOpen(); saveChatDebounced();
+        }
+    });
+    $root.on('click.cc', '[data-del-faction]', function () {
+        const id = String($(this).data('del-faction'));
+        getState().world.factions = getState().world.factions.filter(f => f.id !== id);
+        refreshPanelIfOpen(); saveChatDebounced();
     });
 
-    $root.on('click.cc', '[data-add-note]', function () {
-        const type = $root.find('.cc-note-new-type').val();
-        const $inp = $root.find('.cc-note-new-text');
-        const text = $inp.val().trim();
-        if (text) {
-            getState().world.notes.push({ id: 'n' + Date.now().toString(36), type, text });
-            $inp.val(''); refreshPanelIfOpen(); saveChatDebounced();
+    $root.on('click.cc', '[data-add-quest]', function () {
+        const $sec = $root.find('[data-sec="quests"]');
+        const name = $sec.find('.cc-new').val().trim();
+        if (name) {
+            getState().world.quests.push({ id: uid(), type: $sec.find('.cc-qtype').val(), name, progress: '', reward: '' });
+            $sec.find('.cc-new').val('');
+            refreshPanelIfOpen(); saveChatDebounced();
         }
+    });
+    $root.on('click.cc', '[data-del-quest]', function () {
+        const id = String($(this).data('del-quest'));
+        getState().world.quests = getState().world.quests.filter(q => q.id !== id);
+        refreshPanelIfOpen(); saveChatDebounced();
+    });
+
+    $root.on('click.cc', '[data-add-chekhov]', function () {
+        const $sec = $root.find('[data-sec="chekhov"]');
+        const text = $sec.find('.cc-new').val().trim();
+        if (text) {
+            getState().world.chekhov.push({ id: uid(), text, status: 'active', weight: 1, age: 0, depends: '', secret: false });
+            $sec.find('.cc-new').val('');
+            refreshPanelIfOpen(); saveChatDebounced();
+        }
+    });
+    $root.on('click.cc', '[data-del-chekhov]', function () {
+        const id = String($(this).data('del-chekhov'));
+        getState().world.chekhov = getState().world.chekhov.filter(c => c.id !== id);
+        refreshPanelIfOpen(); saveChatDebounced();
+    });
+
+    $root.on('click.cc', '[data-add-char]', function () {
+        const $inp = $root.find('[data-sec="cast"] .cc-new');
+        const name = $inp.val().trim();
+        if (name) { addCell(name, 'minor'); $inp.val(''); refreshPanelIfOpen(); saveChatDebounced(); }
     });
 }
 
 /** Route a field edit from the panel back into the state object. */
 function applyField($el, field, value) {
     const state = getState();
+    const world = state.world;
     const $cell = $el.closest('[data-cell-id]');
     const cellId = $cell.data('cell-id');
     const cell = cellId ? findCell(cellId) : null;
+    const $fac = $el.closest('[data-faction-id]');
+    const faction = $fac.length ? world.factions.find(f => f.id === String($fac.data('faction-id'))) : null;
+    const $quest = $el.closest('[data-quest-id]');
+    const quest = $quest.length ? world.quests.find(q => q.id === String($quest.data('quest-id'))) : null;
+    const $ch = $el.closest('[data-chekhov-id]');
+    const ch = $ch.length ? world.chekhov.find(c => c.id === String($ch.data('chekhov-id'))) : null;
     const num = v => (isNaN(Number(v)) ? 0 : Number(v));
+    const list = v => value.split(',').map(s => s.trim()).filter(Boolean);
 
     switch (field) {
-        case 'tier': if (cell) cell.tier = value; break;
+        case 'tier': if (cell && !cell.fixed) cell.tier = value; break;
         case 'identity': if (cell) cell.identity = value; break;
         case 'status': if (cell) cell.status = value; break;
         case 'archetype': if (cell) cell.archetype = value; break;
@@ -115,15 +157,45 @@ function applyField($el, field, value) {
         case 'bond-user': if (cell) cell.bonds.user = num(value); break;
         case 'bond-sparks': if (cell) cell.bonds.sparks = num(value); break;
         case 'bond-grudge': if (cell) cell.bonds.grudge = num(value); break;
-        case 'inventory': if (cell) cell.inventory = value.split(',').map(s => s.trim()).filter(Boolean); break;
-        case 'titles': if (cell) cell.titles = value.split(',').map(s => s.trim()).filter(Boolean); break;
+        case 'inventory': if (cell) cell.inventory = list(value); break;
+        case 'titles': if (cell) cell.titles = list(value); break;
+        case 'mods': if (cell) cell.mods = value; break;
+        case 'aware': if (cell) cell.aware = list(value); break;
+        case 'fibs': if (cell) cell.fibs = value; break;
+        case 'circle': if (cell) cell.circle = list(value); break;
         case 'thoughts': if (cell) cell.thoughts = value; break;
+        case 'faction-name': if (faction) faction.name = value; break;
+        case 'faction-goal': if (faction) faction.goal = value; break;
+        case 'faction-intel': if (faction) faction.intel = value; break;
+        case 'faction-fibs': if (faction) faction.fibs = value; break;
+        case 'faction-state': if (faction) faction.fstate = value; break;
+        case 'faction-conflict': if (faction) faction.conflict = value; break;
+        case 'faction-relations': if (faction) faction.relations = value; break;
+        case 'quest-name': if (quest) quest.name = value; break;
+        case 'quest-progress': if (quest) quest.progress = value; break;
+        case 'quest-reward': if (quest) quest.reward = value; break;
+        case 'chekhov-text': if (ch) ch.text = value; break;
+        case 'chekhov-weight': if (ch) ch.weight = num(value); break;
+        case 'chekhov-age': if (ch) ch.age = num(value); break;
+        case 'chekhov-depends': if (ch) ch.depends = value; break;
         case 'note-text': {
             const noteId = String($el.closest('[data-note-id]').data('note-id'));
-            const note = state.world.notes.find(n => n.id === noteId);
+            const note = world.notes.find(n => n.id === noteId);
             if (note) note.text = value;
             break;
         }
+        case 'roll-task': world.roll.task = value; break;
+        case 'roll-dc': world.roll.dc = value; break;
+        case 'roll-user': world.roll.user = value; break;
+        case 'roll-npc': world.roll.npc = value; break;
+        case 'roll-delta': world.roll.delta = value; break;
+        case 'roll-outcome': world.roll.outcome = value; break;
+        case 'combat-mode': world.combat.mode = value; break;
+        case 'combat-engagement': world.combat.engagement = value; break;
+        case 'combat-wounds': world.combat.wounds = value; break;
+        case 'combat-exchange': world.combat.exchange = value; break;
+        case 'env': world.env = value; break;
+        case 'physics': world.physics = value; break;
     }
 }
 
@@ -245,6 +317,10 @@ function registerSlashCommands() {
 
 function slugOf(name) {
     return String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
+function uid() {
+    return 'x' + Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36);
 }
 
 // ---------------------------------------------------------------- init

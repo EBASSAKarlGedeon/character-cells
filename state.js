@@ -26,17 +26,28 @@ export function makeCell(name, tier = 'minor', fixed = false) {
         archetype: '',          // reserved for the personality model (later)
         bonds: { user: 0, sparks: 0, grudge: 0 },   // FF5 relationship engine numbers
         agenda: { goal: '', step: 0, max: 0, location: '' }, // off-screen life
-        status: 'healthy',      // injuries/conditions (FF5 inv/status tracking)
+        status: 'healthy',      // injuries/conditions (FF5 "Body")
+        aware: [],              // FF5 agenda line: secrets this NPC knows
+        fibs: '',               // FF5 agenda line: lies told
+        circle: [],             // FF5 agenda line: allies/allies-of-record
         inventory: [],          // FF5 inv items
         titles: [],             // FF5 titles/skills (roll modifiers)
+        mods: '',               // FF5 inv line: active roll modifiers (user cell)
         memories: [],           // [{ id, what, witnesses: [id], importance: 1-3, turn }]
     };
 }
 
-/** Fresh world state (today's GM Notebook + threads). */
+/** Fresh world state (today's GM Notebook + threads + FF5 world sections). */
 export function makeWorldState() {
     return {
         notes: [],              // [{ id, type: 'R'|'T'|'D', text }] — GM notebook entries
+        factions: [],           // [{ id, name, goal, intel, fibs, fstate, conflict, relations }]
+        quests: [],             // [{ id, type: 'Main'|'Side', name, progress, reward }]
+        chekhov: [],            // [{ id, text, status: active|locked|fired, weight, age, depends, secret }]
+        roll: {},               // { task, dc, user, npc, delta, outcome } — last DND sim roll
+        combat: { mode: 'N/A', engagement: 'N/A', wounds: 'None', exchange: 'N/A' },
+        env: '',                // FF5 "Env" physics line
+        physics: '',            // FF5 "Physics" line
         time: '',               // free text for now, e.g. "Day 3, morning, palace library"
         turn: 0,
     };
@@ -56,6 +67,11 @@ export function getState() {
     if (!s.cells.some(c => c.id === USER_CELL_ID)) {
         s.cells.unshift(makeCell(name1 || USER_CELL_ID, 'main', true));
     }
+    // Lightweight migration for chats created before a schema addition.
+    const w = s.world;
+    for (const k of ['factions', 'quests', 'chekhov']) if (!Array.isArray(w[k])) w[k] = [];
+    if (!w.roll || typeof w.roll !== 'object') w.roll = {};
+    if (!w.combat || typeof w.combat !== 'object') w.combat = { mode: 'N/A', engagement: 'N/A', wounds: 'None', exchange: 'N/A' };
     return s;
 }
 
