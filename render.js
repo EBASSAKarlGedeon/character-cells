@@ -75,13 +75,13 @@ export function renderStateHtml(state) {
         const pct = (v, min, max) => Math.max(0, Math.min(100, ((v - min) / (max - min)) * 100));
         return `
     <div class="cc-bond-card" data-cell-id="${esc(c.id)}">
-      <div class="cc-bond-title">${esc((c.name || '').toUpperCase())} &harr; USER</div>
-      <div class="cc-bond-row"><span class="cc-bond-label l-bond">BOND: ${editable(String(bond), 'bond-user')}</span>
-        <div class="cc-track"><div class="cc-fill f-bond" style="width:${pct(bond, -5, 20)}%"></div></div></div>
+      <div class="cc-bond-title">${esc((c.name || '').toUpperCase())} <span class="cc-arrow">&harr;</span> USER</div>
+      <div class="cc-bond-row"><span class="cc-bond-label ${bond < 0 ? 'l-bond-neg' : 'l-bond'}">BOND: ${editable(String(bond), 'bond-user')}</span>
+        <div class="cc-track"><div class="cc-fill ${bond < 0 ? 'f-bond-neg' : 'f-bond'}" style="width:${bond < 0 ? pct(-bond, 0, 5) : pct(bond, 0, 20)}%"></div></div></div>
       <div class="cc-bond-row"><span class="cc-bond-label l-sparks">SPARKS: ${editable(String(sparks), 'bond-sparks')}</span>
-        <div class="cc-track"><div class="cc-fill f-sparks" style="width:${pct(sparks, 0, 20)}%"></div></div></div>
+        <div class="cc-track"><div class="cc-fill f-sparks" style="width:${pct(sparks, 0, 15)}%"></div></div></div>
       <div class="cc-bond-row"><span class="cc-bond-label l-grudge">GRUDGE: ${editable(String(grudge), 'bond-grudge')}</span>
-        <div class="cc-track"><div class="cc-fill f-grudge" style="width:${pct(grudge, 0, 20)}%"></div></div></div>
+        <div class="cc-track"><div class="cc-fill f-grudge" style="width:${pct(grudge, 0, 10)}%"></div></div></div>
     </div>`;
     }).join('') : '<div class="cc-none">- None</div>';
     const bondsSec = section('bonds', '💚', 'BONDS', 'teal', bondCards);

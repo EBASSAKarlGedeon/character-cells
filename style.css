@@ -1,10 +1,13 @@
-/* Character Cells — FF5 internal-states look.
-   Flat stack of colored section bars: teal / purple / orange groups,
-   dense "Name | Field: value" lines, BOND progress-bar cards. */
+/* Character Cells — FF5 internal-states look, taken VERBATIM from the preset's
+   "FF5 UI - *" regex scripts (Catppuccin Mocha palette). Do not re-theme:
+   the colors below are the exact inline styles the FF5 regexes produce in chat.
+   Palette: base #1e1e2e, mantle #181825, surface0 #313244, surface1 #45475a,
+   text #cdd6f4, blue #89b4fa, teal #94e2d5, mauve #cba6f7, peach #fab387,
+   yellow #f9e2af, green #a6e3a1, pink #f5c2e7, red #f38ba8, sky #74c7ec. */
 
 #cc_dialog {
-    background: linear-gradient(160deg, rgba(20, 16, 34, 0.92), rgba(10, 8, 18, 0.95)) !important;
-    border: 1px solid rgba(140, 120, 220, 0.35) !important;
+    background: rgba(17, 17, 27, 0.92) !important;
+    border: 1px solid #45475a !important;
     box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6) !important;
 }
 
@@ -13,73 +16,154 @@
     overflow-y: auto;
     height: 100%;
     padding: 10px 12px;
-    color: #d8d4ea;
+    color: #cdd6f4;
     line-height: 1.5;
 }
 
-/* top bar */
+/* ---- main bar (FF5 UI - Menu Master) ---- */
 #cc_dialog .cc-topbar {
-    background: linear-gradient(90deg, rgba(74, 60, 120, 0.85), rgba(46, 40, 80, 0.6));
-    border: 1px solid rgba(150, 130, 230, 0.4);
-    border-radius: 6px;
-    padding: 8px 12px;
-    font-weight: 700;
-    font-size: 14px;
-    letter-spacing: 0.4px;
+    background: linear-gradient(90deg, #313244, #1e1e2e);
+    border-bottom: 2px solid #89b4fa;
+    border-radius: 6px 6px 0 0;
+    padding: 10px 12px;
+    font-weight: bold;
+    color: #cdd6f4;
+    text-transform: uppercase;
+    letter-spacing: 1px;
     margin-bottom: 8px;
-    color: #e8e4fa;
 }
-#cc_dialog .cc-turn { color: #a99fd0; font-weight: 600; }
+#cc_dialog .cc-turn { color: #a6adc8; }
 
-/* section bars */
+/* ---- section bars (FF5 UI - Menu Teal / Purple / Orange) ---- */
 #cc_dialog .cc-sec {
-    border: 1px solid rgba(255, 255, 255, 0.08);
-    border-radius: 6px;
-    margin: 6px 0;
-    background: linear-gradient(90deg, rgba(40, 34, 56, 0.75), rgba(28, 24, 44, 0.55));
-    overflow: hidden;
+    background: rgba(20, 20, 30, 0.4);
+    border: 1px solid transparent;
+    border-radius: 4px;
+    margin: 2px 0;
 }
 #cc_dialog .cc-sec > summary {
     list-style: none;
     cursor: pointer;
-    padding: 8px 12px 8px 16px;
-    font-weight: 700;
-    font-size: 13px;
-    letter-spacing: 0.6px;
+    padding: 8px 12px;
+    font-weight: bold;
+    cursor: pointer;
     text-transform: uppercase;
+    letter-spacing: 0.5px;
     user-select: none;
-    position: relative;
     display: flex;
     align-items: center;
     gap: 8px;
 }
 #cc_dialog .cc-sec > summary::-webkit-details-marker { display: none; }
-#cc_dialog .cc-sec > summary::before {
-    content: '';
-    position: absolute;
-    left: 0; top: 0; bottom: 0;
-    width: 4px;
-    border-radius: 6px 0 0 6px;
-}
-/* accent color groups, matching the FF5 palette */
-#cc_dialog .cc-teal   > summary { color: #7ee8d4; }
-#cc_dialog .cc-teal   > summary::before { background: linear-gradient(#3ec9a7, #1f8f77); }
-#cc_dialog .cc-purple > summary { color: #b79bf0; }
-#cc_dialog .cc-purple > summary::before { background: linear-gradient(#9a6ee0, #6a48ad); }
-#cc_dialog .cc-orange > summary { color: #f0a866; }
-#cc_dialog .cc-orange > summary::before { background: linear-gradient(#e08a44, #a85e28); }
-#cc_dialog .cc-sec[open] > summary { border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
+#cc_dialog .cc-sec[open] > summary { border-radius: 4px 4px 0 0; }
 
-/* body content */
+/* Teal: NPC AGENDAS / LOCATIONS / FACTIONS / BONDS */
+#cc_dialog .cc-teal {
+    background: rgba(148, 226, 213, 0.05);
+    border: 1px solid rgba(148, 226, 213, 0.2);
+    border-left: 4px solid #94e2d5;
+}
+#cc_dialog .cc-teal > summary {
+    background: linear-gradient(90deg, rgba(148, 226, 213, 0.25), transparent);
+    color: #94e2d5;
+}
+
+/* Purple: QUESTS / INV & SKILLS / CHEKHOV'S GUN / GM'S NOTEBOOK / INTERNAL THOUGHTS */
+#cc_dialog .cc-purple {
+    background: rgba(203, 166, 247, 0.05);
+    border: 1px solid rgba(203, 166, 247, 0.2);
+    border-left: 4px solid #cba6f7;
+}
+#cc_dialog .cc-purple > summary {
+    background: linear-gradient(90deg, rgba(203, 166, 247, 0.25), transparent);
+    color: #cba6f7;
+}
+
+/* Orange: DND TASK SIM / COMBAT / PHYSICS, ENGINE & WORLD */
+#cc_dialog .cc-orange {
+    background: rgba(250, 179, 135, 0.05);
+    border: 1px solid rgba(250, 179, 135, 0.2);
+    border-left: 4px solid #fab387;
+}
+#cc_dialog .cc-orange > summary {
+    background: linear-gradient(90deg, rgba(250, 179, 135, 0.25), transparent);
+    color: #fab387;
+}
+
+/* bodies — teal/orange wrap in a padded list like the regex <ul>; purple in a div */
 #cc_dialog .cc-sec-body {
-    padding: 10px 12px;
-    font-size: 12.5px;
-    color: #cfcbe2;
+    padding: 8px 12px;
+    font-size: 0.95em;
+    color: #cdd6f4;
 }
-#cc_dialog .cc-none { color: #8d87a8; }
+#cc_dialog .cc-teal .cc-sec-body,
+#cc_dialog .cc-orange .cc-sec-body { margin: 0; padding-left: 15px; }
 
-/* dense lines */
-#cc_dialog .cc-sec-body b { color: #efeaff; }
+/* ---- dense line highlights (FF5 UI - Highlights) ---- */
+#cc_dialog .cc-sec-body b {
+    color: #f9e2af;
+    font-weight: 600;
+    text-shadow: 0 0 2px rgba(249, 226, 175, 0.2);
+}
+#cc_dialog .cc-note-type {
+    color: #f9e2af !important;
+    font-weight: 600;
+    text-shadow: 0 0 2px rgba(249, 226, 175, 0.2);
+}
+#cc_dialog .cc-none { color: #9399b2; }
+
+/* ---- bond cards (FF5 - Relationship Bars) ---- */
+#cc_dialog .cc-bond-card {
+    background: rgba(24, 24, 37, 0.8);
+    border: 1px solid #45475a;
+    border-radius: 6px;
+    padding: 15px;
+    margin-bottom: 12px;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+}
+#cc_dialog .cc-bond-title {
+    text-align: center;
+    font-size: 1.1em;
+    font-weight: bold;
+    color: #cdd6f4;
+    margin-bottom: 12px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+#cc_dialog .cc-bond-title .cc-arrow { color: #74c7ec; margin: 0 8px; }
+#cc_dialog .cc-bond-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 0;
+}
+#cc_dialog .cc-bond-row + .cc-bond-row { margin-top: 12px; }
+#cc_dialog .cc-bond-label {
+    width: 80px;
+    font-weight: bold;
+    font-size: 0.85em;
+    text-align: right;
+    text-shadow: 1px 1px 2px #000;
+    flex-shrink: 0;
+}
+#cc_dialog .l-bond { color: #a6e3a1; }
+#cc_dialog .l-bond-neg { color: #f38ba8; }
+#cc_dialog .l-sparks { color: #f5c2e7; }
+#cc_dialog .l-grudge { color: #f38ba8; }
+#cc_dialog .cc-track {
+    flex-grow: 1;
+    height: 14px;
+    background: rgba(0, 0, 0, 0.6);
+    border-radius: 7px;
+    box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.8);
+    border: 1px solid #313244;
+    overflow: hidden;
+}
+#cc_dialog .cc-fill { height: 100%; border-radius: 7px; }
+#cc_dialog .f-bond { background: linear-gradient(90deg, #94e2d5, #a6e3a1); box-shadow: 0 0 8px rgba(166, 227, 161, 0.5); }
+#cc_dialog .f-bond-neg { background: linear-gradient(90deg, #eba0ac, #f38ba8); box-shadow: 0 0 8px rgba(243, 139, 168, 0.5); }
+#cc_dialog .f-sparks { background: linear-gradient(90deg, #cba6f7, #f5c2e7); box-shadow: 0 0 8px rgba(245, 194, 231, 0.5); }
+#cc_dialog .f-grudge { background: linear-gradient(90deg, #eba0ac, #f38ba8); box-shadow: 0 0 8px rgba(243, 139, 168, 0.5); }
 
 /* editable values */
 #cc_dialog .cc-ed {
@@ -88,57 +172,13 @@
     min-width: 24px;
     display: inline-block;
 }
-#cc_dialog .cc-ed[data-ph]:not(:focus):empty::before { content: attr(data-ph); color: #6f6a8c; }
-#cc_dialog .cc-ed:hover { border-bottom-color: rgba(255, 255, 255, 0.25); }
+#cc_dialog .cc-ed[data-ph]:not(:focus):empty::before { content: attr(data-ph); color: #6c7086; }
+#cc_dialog .cc-ed:hover { border-bottom-color: rgba(205, 214, 244, 0.3); }
 #cc_dialog .cc-ed:focus {
-    border-bottom-color: #9a86e8;
-    background: rgba(120, 100, 200, 0.12);
+    border-bottom-color: #89b4fa;
+    background: rgba(137, 180, 250, 0.1);
     border-radius: 3px;
 }
-
-/* bond cards */
-#cc_dialog .cc-bond-card {
-    border: 1px solid rgba(120, 190, 170, 0.25);
-    border-radius: 8px;
-    background: linear-gradient(160deg, rgba(24, 34, 40, 0.8), rgba(16, 20, 30, 0.85));
-    padding: 10px 14px;
-    margin: 8px 0;
-}
-#cc_dialog .cc-bond-title {
-    text-align: center;
-    font-weight: 700;
-    letter-spacing: 1px;
-    color: #eae6f8;
-    margin-bottom: 8px;
-}
-#cc_dialog .cc-bond-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin: 6px 0;
-}
-#cc_dialog .cc-bond-label {
-    width: 110px;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.5px;
-    flex-shrink: 0;
-}
-#cc_dialog .l-bond { color: #7ee8d4; }
-#cc_dialog .l-sparks { color: #f293d4; }
-#cc_dialog .l-grudge { color: #e07070; }
-#cc_dialog .cc-track {
-    flex: 1;
-    height: 10px;
-    border-radius: 6px;
-    background: rgba(0, 0, 0, 0.55);
-    border: 1px solid rgba(255, 255, 255, 0.07);
-    overflow: hidden;
-}
-#cc_dialog .cc-fill { height: 100%; border-radius: 6px; transition: width 0.25s ease; }
-#cc_dialog .f-bond { background: linear-gradient(90deg, #2ea88a, #57d8b8); }
-#cc_dialog .f-sparks { background: linear-gradient(90deg, #d86ab8, #f2a0dc); }
-#cc_dialog .f-grudge { background: linear-gradient(90deg, #b04a4a, #d87878); }
 
 /* item rows (factions, quests, notes, cast) */
 #cc_dialog .cc-item {
@@ -147,33 +187,27 @@
     gap: 8px;
     margin: 4px 0;
 }
-#cc_dialog .cc-item .cc-ed { flex: 0 1 auto; }
 
-#cc_dialog .cc-note-type { font-weight: 700; }
-#cc_dialog .cc-note-R { color: #e07070; }
-#cc_dialog .cc-note-T { color: #6cb8f0; }
-#cc_dialog .cc-note-D { color: #c98cd8; }
-
-/* small controls */
+/* small controls — quiet Catppuccin styling */
 #cc_dialog .cc-x {
     background: none;
     border: none;
-    color: #a06060;
+    color: #f38ba8;
     cursor: pointer;
     padding: 0 4px;
     font-size: 11px;
-    opacity: 0.7;
+    opacity: 0.6;
 }
-#cc_dialog .cc-x:hover { opacity: 1; color: #e08080; }
+#cc_dialog .cc-x:hover { opacity: 1; }
 #cc_dialog .cc-plus {
-    background: rgba(120, 100, 200, 0.25);
-    border: 1px solid rgba(150, 130, 230, 0.35);
-    color: #d8d0f0;
+    background: rgba(137, 180, 250, 0.12);
+    border: 1px solid rgba(137, 180, 250, 0.3);
+    color: #cdd6f4;
     border-radius: 5px;
     padding: 2px 10px;
     cursor: pointer;
 }
-#cc_dialog .cc-plus:hover { background: rgba(120, 100, 200, 0.45); }
+#cc_dialog .cc-plus:hover { background: rgba(137, 180, 250, 0.25); }
 #cc_dialog .cc-row {
     display: flex;
     gap: 6px;
@@ -182,28 +216,21 @@
 }
 #cc_dialog .cc-row .cc-new, #cc_dialog .cc-row .text_input {
     flex: 1;
-    background: rgba(0, 0, 0, 0.35);
-    border: 1px solid rgba(255, 255, 255, 0.12);
+    background: rgba(30, 30, 46, 0.8);
+    border: 1px solid #45475a;
     border-radius: 5px;
-    color: #e0dcf0;
+    color: #cdd6f4;
     padding: 4px 8px;
     font-size: 12px;
 }
-#cc_dialog .cc-row .menu_button {
-    background: rgba(0, 0, 0, 0.35);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    color: #e0dcf0;
+#cc_dialog .cc-row .menu_button,
+#cc_dialog select.cc-tier-select {
+    background: rgba(30, 30, 46, 0.8);
+    border: 1px solid #45475a;
+    color: #cdd6f4;
     border-radius: 5px;
     font-size: 12px;
     padding: 3px 6px;
-}
-#cc_dialog select.cc-tier-select {
-    background: rgba(0, 0, 0, 0.35);
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    color: #d8d0f0;
-    border-radius: 5px;
-    font-size: 12px;
-    padding: 2px 4px;
 }
 
 /* message action icon */
