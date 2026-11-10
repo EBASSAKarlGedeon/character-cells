@@ -2,7 +2,8 @@
 // Slice 1: per-chat state file (character cells + world threads), stored in chat_metadata
 // so it rides along with the existing chat save/sync with zero new plumbing.
 
-import { chat_metadata, name1 } from '../../../script.js';
+// NOTE: third-party load path → 4 levels up to /script.js (see index.js comment).
+import { chat_metadata, name1 } from '../../../../script.js';
 
 const STATE_KEY = 'character_cells';
 

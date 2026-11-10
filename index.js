@@ -2,11 +2,13 @@
 // Slice 1: state store + drawer panel (internal-states look, editable) + slash commands.
 // State lives in chat_metadata so it saves/syncs with the chat. See docs/CHARACTER-CELLS-SPEC.md.
 
-import { getContext, extension_settings, renderExtensionTemplateAsync } from '../../extensions.js';
-import { SlashCommandParser } from '../../slash-commands/SlashCommandParser.js';
-import { SlashCommand } from '../../slash-commands/SlashCommand.js';
-import { ARGUMENT_TYPE, SlashCommandArgument, SlashCommandNamedArgument } from '../../slash-commands/SlashCommandArgument.js';
-import { saveChatDebounced, eventSource, event_types } from '../../../script.js';
+// NOTE: loaded as a third-party extension (/scripts/extensions/third-party/<name>/),
+// so relative paths need one more level up than built-in extensions.
+import { getContext, extension_settings, renderExtensionTemplateAsync } from '../../../extensions.js';
+import { SlashCommandParser } from '../../../slash-commands/SlashCommandParser.js';
+import { SlashCommand } from '../../../slash-commands/SlashCommand.js';
+import { ARGUMENT_TYPE, SlashCommandArgument, SlashCommandNamedArgument } from '../../../slash-commands/SlashCommandArgument.js';
+import { saveChatDebounced, eventSource, event_types } from '../../../../script.js';
 import { getState, addCell, findCell, setTier, removeCell, addMemory, stateStats } from './state.js';
 import { renderStateHtml } from './render.js';
 
