@@ -12,6 +12,8 @@ import { eventSource, event_types, saveChatDebounced, name1 } from '../../../../
 import { getState, getLedger, findCell, slug, addEvent } from './state.js';
 import { updateInjection } from './inject.js';
 import { getSettings, persistSettings } from './settings.js';
+import { setBookkeeperEnabled } from './bookkeeper.js';
+import { AUTO_CREATE_CAP } from './commands.js';
 import { LOG_PREFIX } from './config.js';
 
 let ConnectionManagerRequestService = null;
@@ -75,6 +77,10 @@ function render() {
                 ? `<select id="cc_bk_profile"></select>`
                 : `<div class="cc-bk-profile-note">Connection Manager extension is not available — cheap calls use the active connection.</div>`}
           </div>
+          <div class="cc-bk-toggles">
+            <label class="cc-bk-toggle"><input type="checkbox" id="cc_set_bookkeeper" ${getSettings().bookkeeperEnabled ? 'checked' : ''}> Bookkeeper state tracking (auto-updates state after each reply)</label>
+            <label class="cc-bk-toggle"><input type="checkbox" id="cc_set_autocells" ${getSettings().bookkeeperAutoCells !== false ? 'checked' : ''}> Auto-create characters, factions & quests (max ${AUTO_CREATE_CAP} per turn)</label>
+          </div>
           <div class="cc-ledger-summary">
             ${ledger.length} event(s) · turn ${currentTurn} · shown: ${shown.length}
             — the ledger is immutable; this browser is for inspection and <i>manual</i> fixes only.
@@ -109,6 +115,14 @@ function refresh() {
 
 function bind() {
     // drawer toggle is handled by ST's global inline-drawer handler
+
+    $container.on('change', '#cc_set_bookkeeper', function () {
+        setBookkeeperEnabled($(this).prop('checked'));
+    });
+    $container.on('change', '#cc_set_autocells', function () {
+        getSettings().bookkeeperAutoCells = $(this).prop('checked');
+        persistSettings();
+    });
 
     $container.on('input', '#cc_ledger_filter_text', function () {
         filter.text = $(this).val();

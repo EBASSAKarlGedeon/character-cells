@@ -3,7 +3,10 @@
 // backfill (backfill.js), so the two can never drift apart. Adding a command
 // here makes it available to both.
 
-import { getState, slug, addEvent, findEvent } from './state.js';
+import { getState, slug, addCell, addEvent, findEvent } from './state.js';
+
+/** New tracked entries auto-creation may create per model call (junk flood guard). */
+export const AUTO_CREATE_CAP = 4;
 
 /** Resolve a name/id to a cell. Tries exact id, exact slug, then substring on name. */
 export function resolveCell(token) {
@@ -19,7 +22,7 @@ export function resolveCell(token) {
 
 /** Parse one command line into { op, raw } or null. */
 export function parseCommand(line) {
-    const m = line.match(/^\s*(memory_add|witness|bond|agenda_step|agenda_set|status|presence|appear|chekhov|turn|task|note_add|note_del|inv|title|thought|plant|nowsim)\s*\((.*)\)\s*;?\s*$/i);
+    const m = line.match(/^\s*(memory_add|witness|bond|agenda_step|agenda_set|status|presence|appear|chekhov|turn|task|note_add|note_del|inv|title|thought|plant|nowsim|char_add|faction_add|quest_add)\s*\((.*)\)\s*;?\s*$/i);
     if (!m) return null;
     return { op: m[1].toLowerCase(), raw: m[2] };
 }
@@ -239,6 +242,65 @@ export function applyCommand(cmd, currentTurn, sceneRoles, opts = {}) {
             // Referee flag: intimate NSFW exchange — World Sim pauses this turn.
             getState().world.worldsimSkip = 'next';
             return 'nowsim: world sim paused this turn';
+        }
+        case 'char_add': {
+            // Auto character creation: fuzzy-match FIRST (name variants merge
+            // into the existing cell), create only when genuinely new.
+            const name = val(kv.name ?? parts[0]);
+            if (!name) return 'skip: no name';
+            const existing = resolveCell(name);
+            if (existing) {
+                if (existing.fixed) return `skip: ${existing.name} is the user cell`;
+                if (kv.desc && !existing.identity) existing.identity = val(kv.desc);
+                return `char_add: ${existing.name} already tracked — merged`;
+            }
+            const cell = addCell(name, 'minor'); // tier/unpinned: auto-tier settles later
+            if (kv.desc) cell.identity = val(kv.desc);
+            const present = val(kv.present).toLowerCase();
+            if (present === 'offstage') {
+                // Named off-screen mover: agenda location set, never on stage.
+                cell.agenda = cell.agenda || {};
+                if (kv.location) cell.agenda.location = val(kv.location);
+                return `char_add: ${cell.name} (offstage${kv.location ? `, ${val(kv.location)}` : ''})`;
+            }
+            return `char_add: ${cell.name} (minor, unpinned)`;
+        }
+        case 'faction_add': {
+            // Upsert by name: reuse the exact existing faction to update it.
+            const name = val(kv.name ?? parts[0]);
+            if (!name) return 'skip: no faction name';
+            const factions = getState().world.factions || (getState().world.factions = []);
+            let f = factions.find(x => x.name.toLowerCase() === name.toLowerCase())
+                || factions.find(x => name.length >= 4 && (x.name.toLowerCase().includes(name.toLowerCase()) || name.toLowerCase().includes(x.name.toLowerCase())));
+            let created = false;
+            if (!f) {
+                f = { id: uid(), name, goal: '', intel: '', fibs: '', fstate: '', conflict: '', relations: '' };
+                factions.push(f);
+                created = true;
+            }
+            for (const [field, key] of [['goal', 'goal'], ['intel', 'intel'], ['fibs', 'fibs'], ['fstate', 'state'], ['conflict', 'conflict'], ['relations', 'relations']]) {
+                if (kv[key]) f[field] = val(kv[key]);
+            }
+            return `${created ? 'faction_add' : 'faction_upd'}: ${f.name}`;
+        }
+        case 'quest_add': {
+            // Upsert by name: same quest name = progress/reward update.
+            const name = val(kv.name ?? parts.slice(1).join(','));
+            if (!name) return 'skip: no quest name';
+            const quests = getState().world.quests || (getState().world.quests = []);
+            let q = quests.find(x => x.name.toLowerCase() === name.toLowerCase())
+                || quests.find(x => name.length >= 4 && (x.name.toLowerCase().includes(name.toLowerCase()) || name.toLowerCase().includes(x.name.toLowerCase())));
+            let created = false;
+            if (!q) {
+                const type = val(kv.type || 'Side').toLowerCase();
+                q = { id: uid(), type: type === 'main' ? 'Main' : 'Side', name, progress: '', reward: '' };
+                quests.push(q);
+                created = true;
+            }
+            if (kv.type) q.type = val(kv.type).toLowerCase() === 'main' ? 'Main' : 'Side';
+            if (kv.progress) q.progress = val(kv.progress);
+            if (kv.reward) q.reward = val(kv.reward);
+            return `${created ? 'quest_add' : 'quest_upd'}: ${q.type}: ${q.name}`;
         }
     }
     return 'skip: unknown op';

@@ -250,6 +250,9 @@
 .cc-bk-profile label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 3px; }
 .cc-bk-profile select { width: 100%; }
 .cc-bk-profile-note { font-size: 11px; opacity: 0.65; font-weight: 400; }
+.cc-bk-toggles { display: flex; flex-direction: column; gap: 4px; margin: 0 0 8px; }
+.cc-bk-toggle { display: flex; align-items: center; gap: 6px; font-size: 12px; cursor: pointer; }
+.cc-bk-toggle input { margin: 0; }
 
 /* ---- Event Ledger browser (Extensions panel) ---- */
 .cc-ledger-summary { font-size: 12px; opacity: 0.75; margin: 6px 0; }

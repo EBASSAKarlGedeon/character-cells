@@ -12,7 +12,7 @@ import { chat, chat_metadata, characters, this_chid, saveChat, openCharacterChat
 import { selected_group } from '../../../../scripts/group-chats.js';
 import { getState, getLedger, hasState } from './state.js';
 import { buildBookkeeperStateSummary } from './inject.js';
-import { parseCommand, applyCommand } from './commands.js';
+import { parseCommand, applyCommand, AUTO_CREATE_CAP } from './commands.js';
 import { logScene, applyAutoTier } from './tiers.js';
 import { cheapCall } from './llm.js';
 import { LOG_PREFIX } from './config.js';
@@ -170,13 +170,18 @@ export async function backfillLedger(progress = null) {
             try {
                 const reply = await cheapCall(SYSTEM_PROMPT, buildBackfillPrompt(text, seeded), 600);
                 const lines = String(reply || '').split('\n').map(l => l.trim()).filter(Boolean);
+                // Two passes: char_add first (cells must exist before other
+                // commands reference them), everything else second.
+                const cmds = lines.map(parseCommand).filter(c => c && (!seeded || SEEDED_OPS.has(c.op)));
+                const creates = [], rest = [];
+                for (const cmd of cmds) (cmd.op === 'char_add' ? creates : rest).push(cmd);
                 let applied = 0;
-                for (const line of lines) {
-                    const cmd = parseCommand(line);
-                    if (!cmd) continue;
-                    if (seeded && !SEEDED_OPS.has(cmd.op)) continue;
+                let created = 0;
+                for (const cmd of [...creates, ...rest]) {
+                    if (cmd.op === 'char_add' && created >= AUTO_CREATE_CAP) continue;
                     try {
                         const r = applyCommand(cmd, virtualTurn, sceneRoles, { onTurn: () => { virtualTurn++; } });
+                        if (r && r.startsWith('char_add:') && !r.includes('already tracked')) created++;
                         if (r && !String(r).startsWith('skip') && r !== 'dup') applied++;
                     } catch { /* malformed line — skip */ }
                 }
@@ -237,6 +242,7 @@ RULES:
 - appear: emit for EVERY character who took part, exactly once each. USER is a participant — use their cell id from CURRENT STATE.
 - imp: 3 = plot-critical, 2 = notable, 1 = minor color.`
         : `OUTPUT GRAMMAR — one command per line, nothing else:
+char_add(name="...", desc="...", present=onstage|offstage, location="...")  # a NEW named character taking part — create their cell FIRST (see rules)
 memory_add(what="...", who=<cellId>,<cellId>,... , imp=<1-3>)   # an event worth remembering; who = every character present who saw it
 witness(<eventId>, <cellId>)                                    # an existing event (from recent_events) that this character also witnessed
 bond(<cellId>, sparks|grudge, <+1|-1|+2|-2>)                    # relationship shift the scene shows (direct BOND drops: bond(<cellId>, user, -1|-2))
@@ -250,10 +256,10 @@ chekhov(<chekhovId>, active|locked|fired) / turn()
 RULES:
 - Only what the scene text actually shows. No speculation.
 - Cell ids MUST come from CURRENT STATE. Never invent ids.
+- This is an EARLY scene: if a NAMED character takes part here who has no cell in CURRENT STATE, create them with char_add FIRST (desc = one line, only what this scene shows), then emit their other commands. NEVER for the user, groups/crowds, or someone merely mentioned. At most ${AUTO_CREATE_CAP} new characters per batch.
 - appear: emit for EVERY character who took part, exactly once each. USER is a participant — use their cell id from CURRENT STATE.
 - imp: 3 = plot-critical, 2 = notable, 1 = minor color.
-- BOND never rises directly: positive shifts go to Sparks; only insults/betrayals lower BOND directly.
-- This is an EARLY scene: characters who act here but have no cell in CURRENT STATE were not tracked yet. Skip commands for them; later batches will cover them.`;
+- BOND never rises directly: positive shifts go to Sparks; only insults/betrayals lower BOND directly.`;
 
     return `CURRENT STATE (JSON):
 ${buildBookkeeperStateSummary()}
