@@ -256,6 +256,9 @@ export function applyCommand(cmd, currentTurn, sceneRoles, opts = {}) {
                 return `char_add: ${existing.name} already tracked — merged`;
             }
             const cell = addCell(name, 'minor'); // tier/unpinned: auto-tier settles later
+            // Reaching here means resolveCell() found nothing above, so this is a
+            // genuine birth — report it for the origin call (slice 9 follow-up).
+            if (opts.createdCellIds) opts.createdCellIds.push(cell.id);
             if (kv.desc) cell.identity = val(kv.desc);
             const present = val(kv.present).toLowerCase();
             if (present === 'offstage') {

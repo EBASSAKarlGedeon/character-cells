@@ -11,6 +11,7 @@ import { ARGUMENT_TYPE, SlashCommandArgument, SlashCommandNamedArgument } from '
 import { saveChatDebounced, eventSource, event_types, name1 } from '../../../../script.js';
 import { getState, hasState, addCell, findCell, setTier, removeCell, addMemory, stateStats, addEvent, getLedger } from './state.js';
 import { ensureRel } from './rel.js';
+import { seedOrigin } from './origin.js';
 import { renderStateHtml } from './render.js';
 import { digestStats } from './digest.js';
 import { setDigestInfo } from './render.js';
@@ -166,7 +167,13 @@ function bindPanelEvents($root) {
     $root.on('click.cc', '[data-add-char]', function () {
         const $inp = $root.find('[data-sec="cast"] .cc-new');
         const name = $inp.val().trim();
-        if (name) { addCell(name, 'minor'); $inp.val(''); refreshPanelIfOpen(); saveChatDebounced(); }
+        if (name) {
+            const existed = !!findCell(slugOf(name));
+            const cell = addCell(name, 'minor');
+            $inp.val('');
+            if (!existed && cell && !cell.fixed) void seedOrigin(cell); // origin call: once, never fatal
+            refreshPanelIfOpen(); saveChatDebounced();
+        }
     });
 
     // ---- CC TOOLS: import / strip-copy / backfill / digests
@@ -375,7 +382,9 @@ function registerSlashCommands() {
             const name = String(_args.name ?? '').trim();
             if (!name) return 'Usage: /cc-add name=Kael tier=main';
             const tier = String(_args.tier ?? 'minor');
+            const existed = !!findCell(slugOf(String(name)));
             const cell = addCell(name, tier);
+            if (!existed && cell && !cell.fixed) void seedOrigin(cell); // origin call: once, never fatal
             saveChatDebounced();
             return `Added/updated ${cell.name} (${cell.tier})`;
         },

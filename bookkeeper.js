@@ -14,6 +14,7 @@ import { updateInjection } from './inject.js';
 import { parseCommand, applyCommand, AUTO_CREATE_CAP } from './commands.js';
 import { stageOf, markRelStamps } from './rel.js';
 import { logScene, applyAutoTier } from './tiers.js';
+import { seedOrigin } from './origin.js';
 import { initSettings, getSettings, persistSettings } from './settings.js';
 import { cheapCall } from './llm.js';
 import { LOG_PREFIX } from './config.js';
@@ -166,13 +167,13 @@ async function runBookkeeper() {
         const cmds = lines.map(parseCommand).filter(Boolean);
         const creates = [], rest = [];
         for (const cmd of cmds) (cmd.op === 'char_add' ? creates : rest).push(cmd);
-        const relCounts = {}; // per-run caps for trust/rel ops (slice 9)
+        const opts = { relCounts: {}, createdCellIds: [] }; // per-run caps + birth reports (slice 9)
         let created = 0;
         for (const cmd of creates) {
             if (!settings.bookkeeperAutoCells) { applied.push('skip: auto-create off'); continue; }
             if (created >= AUTO_CREATE_CAP) { applied.push(`skip: char_add cap (${AUTO_CREATE_CAP}/call)`); continue; }
             try {
-                const r = applyCommand(cmd, turn0, sceneRoles, { relCounts });
+                const r = applyCommand(cmd, turn0, sceneRoles, opts);
                 if (r && r.startsWith('char_add:') && !r.includes('already tracked')) created++;
                 applied.push(r);
             } catch (e) {
@@ -181,7 +182,7 @@ async function runBookkeeper() {
         }
         for (const cmd of rest) {
             try {
-                applied.push(applyCommand(cmd, turn0, sceneRoles, { relCounts }));
+                applied.push(applyCommand(cmd, turn0, sceneRoles, opts));
             } catch (e) {
                 console.warn(`${LOG_PREFIX} bookkeeper command failed:`, cmd.op, e);
             }
@@ -198,6 +199,13 @@ async function runBookkeeper() {
         // Relationship layer: stamp the current stage as "seen" so the next
         // pass's drift label measures exactly what THIS pass changed.
         markRelStamps();
+        // Origin calls (slice 9 follow-up): cells BORN this pass get their
+        // pre-existing relationship seeded from the card + this scene. One cheap
+        // call each, once per cell ever; failures just leave the default.
+        for (const id of opts.createdCellIds) {
+            const cell = getState().cells.find(c => c.id === id);
+            if (cell) await seedOrigin(cell, sceneText);
+        }
         if (applied.length) {
             console.log(`${LOG_PREFIX} bookkeeper applied (${applied.length} change(s)):\n  ` + applied.join('\n  '));
             updateInjection();

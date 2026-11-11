@@ -69,6 +69,7 @@ export function ensureRel(cell) {
     if (!Array.isArray(r.dislikes)) r.dislikes = [];
     if (typeof r.trust !== 'number' || isNaN(r.trust)) r.trust = 0;
     if (typeof r.severed !== 'boolean') r.severed = false;
+    if (typeof r.originTried !== 'boolean') r.originTried = false; // origin call: once per cell, ever
     return r;
 }
 
