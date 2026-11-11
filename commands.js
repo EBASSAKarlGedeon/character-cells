@@ -4,6 +4,7 @@
 // here makes it available to both.
 
 import { getState, slug, addCell, addEvent, findEvent } from './state.js';
+import { ensureRel, parseRoute, parseCondition, stageFor, TANGLED_STAGES } from './rel.js';
 
 /** New tracked entries auto-creation may create per model call (junk flood guard). */
 export const AUTO_CREATE_CAP = 4;
@@ -22,7 +23,7 @@ export function resolveCell(token) {
 
 /** Parse one command line into { op, raw } or null. */
 export function parseCommand(line) {
-    const m = line.match(/^\s*(memory_add|witness|bond|agenda_step|agenda_set|status|presence|appear|chekhov|turn|task|note_add|note_del|inv|title|thought|plant|nowsim|char_add|faction_add|quest_add)\s*\((.*)\)\s*;?\s*$/i);
+    const m = line.match(/^\s*(memory_add|witness|bond|agenda_step|agenda_set|status|presence|appear|chekhov|turn|task|note_add|note_del|inv|title|thought|plant|nowsim|char_add|faction_add|quest_add|trust|rel)\s*\((.*)\)\s*;?\s*$/i);
     if (!m) return null;
     return { op: m[1].toLowerCase(), raw: m[2] };
 }
@@ -301,6 +302,104 @@ export function applyCommand(cmd, currentTurn, sceneRoles, opts = {}) {
             if (kv.progress) q.progress = val(kv.progress);
             if (kv.reward) q.reward = val(kv.reward);
             return `${created ? 'quest_add' : 'quest_upd'}: ${q.type}: ${q.name}`;
+        }
+        case 'trust': {
+            // Slice 9: trust is the NPC's separate-from-heart number. Judgment
+            // only (bookkeeper emits it on earned evidence); no automatic tick.
+            const cell = resolveCell(parts[0]);
+            const delta = intOf(parts[1]);
+            if (!cell) return 'skip: unknown cell';
+            if (cell.fixed) return 'skip: user cell has no rel';
+            if (!delta) return 'skip: bad trust delta';
+            const counts = (opts.relCounts = opts.relCounts || {});
+            const key = cell.id + ':trust';
+            counts[key] = (counts[key] || 0) + 1;
+            if (counts[key] > 2) return `skip: trust cap for ${cell.name} (2/turn)`;
+            const r = ensureRel(cell);
+            r.trust = Math.max(-5, Math.min(20, (Number(r.trust) || 0) + delta));
+            return `trust: ${cell.name} ${delta > 0 ? '+' : ''}${delta} (now ${r.trust})`;
+        }
+        case 'rel': {
+            // Slice 9: relationship-card fields. Vocabulary is validated here
+            // (code owns it); the free-text judgment is the bookkeeper's.
+            const cell = resolveCell(parts[0]);
+            const field = val(parts[1]).toLowerCase();
+            if (!cell) return 'skip: unknown cell';
+            if (cell.fixed) return 'skip: user cell has no rel';
+            const value = val(kv.value ?? parts.slice(2).join(','));
+            const r = ensureRel(cell);
+            const counts = (opts.relCounts = opts.relCounts || {});
+            const once = (name, limit = 1) => {
+                const key = cell.id + ':' + name;
+                counts[key] = (counts[key] || 0) + 1;
+                return counts[key] > limit;
+            };
+            switch (field) {
+                case 'condition': {
+                    if (once('condition')) return `skip: condition cap for ${cell.name}`;
+                    const c = parseCondition(value);
+                    if (!c) return 'skip: no condition';
+                    if (r.condition === c) return 'dup';
+                    r.condition = c;
+                    return `rel: ${cell.name} condition → ${c}`;
+                }
+                case 'route': {
+                    if (once('route')) return `skip: route cap for ${cell.name}`;
+                    const p = parseRoute(value);
+                    if (!p) return 'skip: no route name';
+                    const route = `${p.emoji} ${p.name}`;
+                    if (r.route === route) return 'dup';
+                    r.route = route;
+                    return `rel: ${cell.name} route → ${route}`;
+                }
+                case 'likes':
+                case 'dislikes': {
+                    // Append-only DISCOVERIES: one new entry per list per turn,
+                    // capped lists (the panel hand-edit can prune).
+                    if (once(field)) return `skip: ${field} cap for ${cell.name}`;
+                    if (!value) return `skip: no ${field} entry`;
+                    if (r[field].some(x => x.toLowerCase() === value.toLowerCase())) return 'dup';
+                    if (r[field].length >= 8) return `skip: ${field} full (8)`;
+                    r[field].push(value);
+                    return `rel: ${cell.name} ${field} + ${value}`;
+                }
+                case 'keepsake': {
+                    // The moment the NPC replays most = a LEDGER event id.
+                    if (once('keepsake')) return `skip: keepsake cap for ${cell.name}`;
+                    const ev = findEvent(value);
+                    if (!ev) return 'skip: unknown keepsake event id';
+                    if (r.keepsake === ev.id) return 'dup';
+                    r.keepsake = ev.id;
+                    return `rel: ${cell.name} keepsake → "${ev.what.slice(0, 40)}"`;
+                }
+                case 'threshold': {
+                    if (once('threshold')) return `skip: threshold cap for ${cell.name}`;
+                    if (!value) return 'skip: no threshold';
+                    if (r.threshold === value) return 'dup';
+                    r.threshold = value;
+                    return `rel: ${cell.name} threshold → ${value.slice(0, 50)}`;
+                }
+                case 'severed': {
+                    if (once('severed')) return `skip: severed cap for ${cell.name}`;
+                    const on = ['true', 'on', 'yes', '1'].includes(value.toLowerCase());
+                    if (r.severed === on) return 'dup';
+                    r.severed = on;
+                    return `rel: ${cell.name} severed ${on ? 'TRUE — bond ended' : 'cleared'}`;
+                }
+                case 'stage': {
+                    // The ONE judgment exception to band-derived stage: a tangled
+                    // pin. It releases automatically when BOND changes band.
+                    if (once('stage')) return `skip: stage cap for ${cell.name}`;
+                    const named = TANGLED_STAGES.find(t => t.toLowerCase() === value.trim().toLowerCase());
+                    if (!named) return 'skip: only tangled stages are pinnable (Complicated|Codependent|Estranged|Rivals|Frenemies|Unrequited|Forbidden)';
+                    if (r.stagePin === named) return 'dup';
+                    r.stagePin = named;
+                    r.stagePinBand = stageFor(cell.bonds?.user);
+                    return `rel: ${cell.name} stage pinned → ${named} (releases when BOND changes band)`;
+                }
+                default:
+                    return 'skip: bad rel field';
+            }
         }
     }
     return 'skip: unknown op';

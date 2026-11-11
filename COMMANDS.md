@@ -246,7 +246,13 @@ text), so memory aging math stays correct.
 | `/cc-stats` | state size report |
 
 *(The bookkeeper's own command grammar — `memory_add`, `witness`, `bond`,
-`appear`, `char_add`, `faction_add`, `quest_add`, … — is what the cheap model
-outputs; you never type it. It lives in `commands.js` and is shared by the
-live bookkeeper and the backfill. Auto-creation commands are gated by the
-drawer checkbox and the 4-per-call cap.)*
+`appear`, `char_add`, `faction_add`, `quest_add`, `trust`, `rel`, … — is what
+the cheap model outputs; you never type it. It lives in `commands.js` and is
+shared by the live bookkeeper and the backfill. Auto-creation commands are
+gated by the drawer checkbox and the 4-per-call cap. `trust`/`rel` are the
+slice-9 relationship layer: trust is a judgment-only number separate from
+BOND (heart), and `rel(cell, field, value)` maintains the relationship card —
+route (palette emoji + free name), condition, likes/dislikes (append-only
+discoveries), keepsake (a ledger event id), threshold (the named next
+moment), tangled stage pins, and severed. The stage itself is NOT commanded —
+it derives from BOND in `rel.js`.)*

@@ -3,6 +3,9 @@
 // bars (teal/purple/orange groups), dense "Name | Field: value" lines, and
 // BOND progress-bar cards. Generated from state data; values are editable inline.
 
+import { stageOf, driftOf, WARM_LADDER, COLD_LADDER, DRIFT_UP, DRIFT_DOWN } from './rel.js';
+import { findEvent } from './state.js';
+
 const esc = escapeHtml;
 
 /** A dense "- <b>Label:</b> value | ..." line with editable value slots. */
@@ -136,6 +139,38 @@ export function renderStateHtml(state) {
     }).join('') : '<div class="cc-none">- None</div>';
     const bondsSec = section('bonds', '💚', 'BONDS', 'teal', bondCards);
 
+    // ---- RELATIONSHIPS (teal) — slice 9: Pura-style route cards, rendered from
+    // data (no format-law fragility). Stage derives from BOND; trust / likes /
+    // dislikes / keepsake / threshold are bookkeeper-maintained, hand-editable.
+    const relCards = npcs.length ? npcs.map(c => {
+        const r = c.rel || {};
+        const bond = Number((c.bonds || {}).user ?? 0);
+        const stage = stageOf(c);
+        const cold = bond < 0;
+        const path = (cold ? COLD_LADDER : WARM_LADDER)
+            .map(s => s === stage ? `<span class="cc-rel-here">${esc(s)}</span>` : esc(s))
+            .join('<span class="cc-rel-arrow">&gt;</span>');
+        const drift = driftOf(c);
+        const driftCls = drift === DRIFT_UP ? 'cc-drift-up' : drift === DRIFT_DOWN ? 'cc-drift-down' : 'cc-drift-hold';
+        const keepsakeEv = r.keepsake ? findEvent(r.keepsake) : null;
+        const keepsakeNote = keepsakeEv ? `<span class="cc-rel-keepsake-text">"${esc(keepsakeEv.what)}"</span>`
+            : (r.keepsake ? `<span class="cc-rel-keepsake-text">${esc(r.keepsake)}</span>` : '');
+        return `
+    <div class="cc-rel-card${r.severed ? ' cc-rel-severed' : ''}" data-cell-id="${esc(c.id)}">
+      <div class="cc-rel-head">${esc((c.name || '').toUpperCase())} &harr; USER
+        <span class="cc-rel-route">${editable(r.route || '', 'rel-route', 'route')}</span>
+        <span class="cc-rel-cond">${editable(r.condition || '', 'rel-condition', 'condition')}</span>
+        ${drift ? `<span class="cc-rel-drift ${driftCls}">${esc(drift)}</span>` : ''}
+        ${r.severed ? '<span class="cc-rel-sev-badge">💀 SEVERED</span>' : `<button class="cc-x cc-rel-sev-btn" title="Sever this bond — the card retires after this" data-rel-sever="${esc(c.id)}">💀</button>`}
+      </div>
+      <div class="cc-rel-ladder">${path}${r.stagePin ? ` <span class="cc-rel-pin">${esc(r.stagePin)} 📌 <button class="cc-x" title="Release the tangled stage pin" data-rel-unpin="${esc(c.id)}">♻</button></span>` : ''}</div>
+      <div class="cc-rel-row"><span class="cc-bond-label l-bond">HEART: ${esc(String(bond))}</span> <span class="cc-rel-hint">(moves via sparks/grudge only)</span> | <span class="cc-bond-label l-sparks">TRUST: ${editable(String(r.trust ?? 0), 'rel-trust')}</span></div>
+      <div class="cc-rel-row">Likes: ${editable((r.likes || []).join(', '), 'rel-likes', 'still a mystery')} | Dislikes: ${editable((r.dislikes || []).join(', '), 'rel-dislikes', 'still a mystery')}</div>
+      <div class="cc-rel-row">Keepsake: ${editable(r.keepsake || '', 'rel-keepsake', 'none')} ${keepsakeNote} | Next: ${editable(r.threshold || '', 'rel-threshold', 'no threshold yet')}</div>
+    </div>`;
+    }).join('') : '<div class="cc-none">- None</div>';
+    const relSec = section('relationships', '💞', 'RELATIONSHIPS', 'teal', relCards);
+
     // ---- QUESTS (purple)
     const questBody = (quests.length ? quests.map(q => `
       <div class="cc-item" data-quest-id="${esc(q.id)}">
@@ -240,6 +275,7 @@ export function renderStateHtml(state) {
   ${inventoriesSec}
   ${factionsSec}
   ${bondsSec}
+  ${relSec}
   ${questsSec}
   ${chekhovSec}
   ${notesSec}

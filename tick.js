@@ -31,6 +31,7 @@ import { chat } from '../../../../script.js';
 import { getState, hasState, findCell } from './state.js';
 import { cheapCall } from './llm.js';
 import { parseCommand, applyCommand } from './commands.js';
+import { markRelStamps } from './rel.js';
 import { getSettings } from './settings.js';
 import { LOG_PREFIX } from './config.js';
 
@@ -369,6 +370,7 @@ export async function runTick() {
     // 2. Mechanical ticks
     tickAgendas(s, turn, log);
     tickBonds(s, turn, log);
+    markRelStamps(); // bond ticks can move the derived stage — stamp for the drift label
     const chekhovResult = tickChekhov(s, turn, log);
     // 3. World Sim — skipped when the referee flagged an intimate NSFW exchange
     if (getSettings().worldSimEnabled) {

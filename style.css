@@ -289,3 +289,59 @@
     background-color: #000;
     color: #fff;
 }
+
+/* ---- relationship cards (slice 9 — Pura-style route cards, app-rendered) ---- */
+#cc_dialog .cc-rel-card {
+    background: rgba(24, 24, 37, 0.8);
+    border: 1px solid #45475a;
+    border-radius: 6px;
+    padding: 12px 15px;
+    margin-bottom: 12px;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.3);
+}
+#cc_dialog .cc-rel-card.cc-rel-severed { opacity: 0.55; border-color: #f38ba8; }
+#cc_dialog .cc-rel-head {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    font-weight: bold;
+    color: #cdd6f4;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 8px;
+}
+#cc_dialog .cc-rel-route, #cc_dialog .cc-rel-cond {
+    font-weight: normal;
+    text-transform: none;
+    letter-spacing: 0;
+    color: #f9e2af;
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid #313244;
+    border-radius: 10px;
+    padding: 1px 8px;
+    font-size: 0.85em;
+}
+#cc_dialog .cc-rel-drift {
+    font-size: 0.8em;
+    border-radius: 10px;
+    padding: 1px 8px;
+    border: 1px solid #313244;
+}
+#cc_dialog .cc-drift-up { color: #a6e3a1; background: rgba(166, 227, 161, 0.12); }
+#cc_dialog .cc-drift-down { color: #f38ba8; background: rgba(243, 139, 168, 0.12); }
+#cc_dialog .cc-drift-hold { color: #9399b2; }
+#cc_dialog .cc-rel-sev-badge { color: #f38ba8; font-size: 0.85em; }
+#cc_dialog .cc-rel-sev-btn { margin-left: auto; }
+#cc_dialog .cc-rel-ladder {
+    color: #9399b2;
+    font-size: 0.9em;
+    margin-bottom: 8px;
+    word-spacing: 2px;
+}
+#cc_dialog .cc-rel-arrow { color: #585b70; margin: 0 4px; }
+#cc_dialog .cc-rel-here { color: #f9e2af; font-weight: bold; text-shadow: 0 0 6px rgba(249, 226, 175, 0.4); }
+#cc_dialog .cc-rel-pin { color: #f5c2e7; margin-left: 8px; }
+#cc_dialog .cc-rel-row { margin-top: 4px; color: #cdd6f4; font-size: 0.92em; }
+#cc_dialog .cc-rel-hint { color: #6c7086; font-size: 0.85em; }
+#cc_dialog .cc-rel-keepsake-text { color: #94e2d5; font-style: italic; }

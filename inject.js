@@ -12,6 +12,7 @@ import { extension_prompt_types, extension_prompt_roles, setExtensionPrompt } fr
 import { hasState, getState, eventsKnownTo } from './state.js';
 import { getSettings } from './settings.js';
 import { landmarksKnownTo, getDigest } from './digest.js';
+import { stageOf } from './rel.js';
 import { LOG_PREFIX } from './config.js';
 
 const INJECT_KEY = 'character_cells';
@@ -46,6 +47,26 @@ function knowledgeParts(cell, digest = '') {
     return parts;
 }
 
+/**
+ * Relationship layer (slice 9): one compact segment about this NPC's bond with
+ * the user. Only present when a rel block exists — old/empty cells stay silent.
+ * In perspective mode this is used ONLY for the POV character (their own inner
+ * state); other NPCs' rels are unknowable to a perspective and stay out.
+ */
+function relSegment(c) {
+    const r = c.rel;
+    if (!r) return '';
+    const b = c.bonds || {};
+    if (r.severed) return `Rel: 💀 SEVERED (this bond is over)`;
+    const bits = [`Rel: ${stageOf(c)}`, `heart ${b.user ?? 0} / trust ${r.trust ?? 0}`];
+    if (r.condition) bits.push(r.condition);
+    if (r.route) bits.push(`route: ${r.route}`);
+    if ((r.likes || []).length) bits.push(`likes: ${r.likes.join(', ')}`);
+    if ((r.dislikes || []).length) bits.push(`dislikes: ${r.dislikes.join(', ')}`);
+    if (r.threshold) bits.push(`next: ${r.threshold}`);
+    return bits.join(' | ');
+}
+
 /** Full line for main/secondary cells. */
 function fullCellLine(c, digest = '') {
     const a = c.agenda || {};
@@ -56,6 +77,7 @@ function fullCellLine(c, digest = '') {
         orDash(c.identity) !== '—' ? c.identity : '',
         `BOND ${b.user ?? 0} SPARKS ${b.sparks ?? 0} GRUDGE ${b.grudge ?? 0}`,
         a.goal ? `Agenda: ${a.goal} (step ${a.step ?? 0}/${a.max ?? 0}) @ ${orDash(a.location)}` : '',
+        relSegment(c),
         `Body: ${orDash(c.status)}`,
         (c.aware || []).length ? `Aware: ${csv(c.aware)}` : '',
         c.fibs ? `Fibs: ${c.fibs}` : '',
@@ -217,6 +239,7 @@ export function buildPerspectiveBlock(digests = {}) {
         orDash(mc.identity) !== '—' ? mc.identity : '',
         `BOND ${b.user ?? 0} SPARKS ${b.sparks ?? 0} GRUDGE ${b.grudge ?? 0}`,
         a.goal ? `Agenda: ${a.goal} (step ${a.step ?? 0}/${a.max ?? 0}) @ ${orDash(a.location)}` : '',
+        relSegment(mc), // the POV character knows their own heart and trust
         `Body: ${orDash(mc.status)}`,
         (mc.aware || []).length ? `Aware: ${csv(mc.aware)}` : '',
         mc.fibs ? `Fibs: ${mc.fibs}` : '',

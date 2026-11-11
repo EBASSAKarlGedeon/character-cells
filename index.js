@@ -10,6 +10,7 @@ import { SlashCommand } from '../../../slash-commands/SlashCommand.js';
 import { ARGUMENT_TYPE, SlashCommandArgument, SlashCommandNamedArgument } from '../../../slash-commands/SlashCommandArgument.js';
 import { saveChatDebounced, eventSource, event_types, name1 } from '../../../../script.js';
 import { getState, hasState, addCell, findCell, setTier, removeCell, addMemory, stateStats, addEvent, getLedger } from './state.js';
+import { ensureRel } from './rel.js';
 import { renderStateHtml } from './render.js';
 import { digestStats } from './digest.js';
 import { setDigestInfo } from './render.js';
@@ -71,6 +72,26 @@ function bindPanelEvents($root) {
         unpinTier(id);
         refreshPanelIfOpen();
         saveChatDebounced();
+    });
+
+    // Relationship layer (slice 9): sever/unsever and tangled-stage pin release.
+    $root.on('click.cc', '[data-rel-sever]', function () {
+        const cell = findCell(String($(this).data('rel-sever')));
+        if (cell && !cell.fixed) {
+            const r = ensureRel(cell);
+            r.severed = !r.severed;
+            refreshPanelIfOpen();
+            saveChatDebounced(); updateInjection();
+        }
+    });
+    $root.on('click.cc', '[data-rel-unpin]', function () {
+        const cell = findCell(String($(this).data('rel-unpin')));
+        if (cell && cell.rel) {
+            cell.rel.stagePin = '';
+            cell.rel.stagePinBand = '';
+            refreshPanelIfOpen();
+            saveChatDebounced();
+        }
     });
 
     $root.on('click.cc', '[data-del-cell]', function () {
@@ -218,6 +239,15 @@ function applyField($el, field, value) {
         case 'bond-user': if (cell) cell.bonds.user = num(value); break;
         case 'bond-sparks': if (cell) cell.bonds.sparks = num(value); break;
         case 'bond-grudge': if (cell) cell.bonds.grudge = num(value); break;
+        // Relationship layer (slice 9): panel edits are the authority — raw values
+        // stored as typed; the vocabulary validation applies to BOOKKEEPER ops only.
+        case 'rel-trust': if (cell && !cell.fixed) ensureRel(cell).trust = Math.max(-5, Math.min(20, num(value))); break;
+        case 'rel-route': if (cell && !cell.fixed) ensureRel(cell).route = value; break;
+        case 'rel-condition': if (cell && !cell.fixed) ensureRel(cell).condition = value; break;
+        case 'rel-likes': if (cell && !cell.fixed) ensureRel(cell).likes = list(value); break;
+        case 'rel-dislikes': if (cell && !cell.fixed) ensureRel(cell).dislikes = list(value); break;
+        case 'rel-keepsake': if (cell && !cell.fixed) ensureRel(cell).keepsake = value; break;
+        case 'rel-threshold': if (cell && !cell.fixed) ensureRel(cell).threshold = value; break;
         case 'inventory': if (cell) cell.inventory = list(value); break;
         case 'titles': if (cell) cell.titles = list(value); break;
         case 'mods': if (cell) cell.mods = value; break;

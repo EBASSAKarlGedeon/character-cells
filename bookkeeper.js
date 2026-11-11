@@ -12,6 +12,7 @@ import { chat, saveChatDebounced, eventSource, event_types } from '../../../../s
 import { getState, getLedger } from './state.js';
 import { updateInjection } from './inject.js';
 import { parseCommand, applyCommand, AUTO_CREATE_CAP } from './commands.js';
+import { stageOf, markRelStamps } from './rel.js';
 import { logScene, applyAutoTier } from './tiers.js';
 import { initSettings, getSettings, persistSettings } from './settings.js';
 import { cheapCall } from './llm.js';
@@ -51,10 +52,23 @@ export function buildStateSummary() {
     const s = getState();
     const world = s.world || {};
     const out = { turn: world.turn || 0 };
-    out.cells = (s.cells || []).map(c => ({
-        id: c.id, name: c.name, tier: c.tier,
-        bonds: c.bonds, agenda: c.agenda, status: c.status,
-    }));
+    out.cells = (s.cells || []).map(c => {
+        const base = {
+            id: c.id, name: c.name, tier: c.tier,
+            bonds: c.bonds, agenda: c.agenda, status: c.status,
+        };
+        // Relationship layer (slice 9): show the card fields the bookkeeper maintains.
+        if (c.rel) {
+            base.rel = {
+                stage: stageOf(c), trust: c.rel.trust ?? 0,
+                condition: c.rel.condition || '', route: c.rel.route || '',
+                likes: c.rel.likes || [], dislikes: c.rel.dislikes || [],
+                keepsake: c.rel.keepsake || '', threshold: c.rel.threshold || '',
+                severed: !!c.rel.severed,
+            };
+        }
+        return base;
+    });
     const ledger = getLedger();
     if (ledger.length) {
         // Recent events WITH ids, so the bookkeeper can attach witnesses to them.
@@ -104,7 +118,9 @@ inv(<cellId>, +item|-item)                                      # item gained or
 title(<cellId>, +name|-name)                                    # story title/skill earned or lost (e.g. "Charmer", "Slayer")
 thought(<cellId>, "...")                                        # 1-2 lines of raw, impulsive inner thought matching this NPC's persona (max 3 NPCs per turn)
 plant(text="...", weight=<1-3>, secret=<true|false>)            # the story planted a promise/setup/secret/foreshadow worth paying off later
-chekhov(<chekhovId>, active|locked|fired)                       # plant state change — fired ONLY when the scene actually resolved the planted element${createGrammar}
+chekhov(<chekhovId>, active|locked|fired)                       # plant state change — fired ONLY when the scene actually resolved the planted element
+trust(<cellId>, <+1|-1|+2|-2>)                                  # the NPC's TRUST in the user rose/fell — earned evidence only (see REL RULES)
+rel(<cellId>, condition|route|likes|dislikes|keepsake|threshold|severed|stage, "...")   # relationship-card field (see REL RULES)${createGrammar}
 
 RULES:
 - Only what the scene text actually shows. No speculation.
@@ -116,6 +132,8 @@ RULES:
 - Do NOT emit task commands — the dice are rolled before the scene is written; outcomes you read are already decided.
 - thought: never mind-read the user, never interpret the user's meaning as fact — interpretations belong to the NPC and may be wrong.
 - plant: only genuine unresolved narrative debt (promises, scheduled events, secrets, setups). 1-2 per turn max; most turns none.
+- REL RULES — relationships move SLOWLY. Most turns emit NO trust/rel lines at all; emit one only when the scene shows the concrete on-screen moment that earned it, never for ordinary pleasant conversation. trust is SEPARATE from heart: rises only for kept promises, protection, honesty; falls on betrayal or broken trust; it rebuilds across scenes, never in one conversation. Never try to raise BOND yourself (sparks do that). likes/dislikes: append-only DISCOVERIES — only what the user saw happen on screen this scene, one new entry each, max. threshold: the CONCRETE next moment that would move this bond (a confession, a rescue, a shared meal in silence), never a vague feeling; rewrite it when the stage moves. route: "<palette emoji> <1-4 word name>" — palette: 🌱🌸💐🌹🕊️🪶🧸🏠🔮🧵🧲🌙✨⏳🌅🕰️⚔️🔥🗡️🩸⛓️🏹⚡🕸️🕯️🥀🌑🕳️💀🪞🧨🚪❄️🧊🌊🌫️🐦🌉🎭🎲🤝🫂🛡️🎓🐉🩹💍👑🎶🧪🍂🍯🗝️🐍🌘⚓ — change the route only when the story truly turns. condition: emotional weather — 💚 STABLE 💛 SHIFTING 💔 HEARTBROKEN 🖤 BETRAYED 💢 RESENTFUL 🔥 PASSIONATE ❄️ COLD 🫧 INFATUATED 🩹 MENDING ⛓️ OBSESSED 😶 NUMB 🌧️ GRIEVING 🤝 RECONCILING ⚡ VOLATILE — may shift while the stage stays put. stage: pin a TANGLED stage only (Complicated|Codependent|Estranged|Rivals|Frenemies|Unrequited|Forbidden). severed=true ONLY for a real ending of the relationship.
+- REL AUDIT before finishing: re-read every trust/rel line you emitted; each must be backed by an on-screen moment you can point to. If you cannot point to one, remove that line.
 - No explanations, no blank commentary. Commands only.`;
 }
 
@@ -148,12 +166,13 @@ async function runBookkeeper() {
         const cmds = lines.map(parseCommand).filter(Boolean);
         const creates = [], rest = [];
         for (const cmd of cmds) (cmd.op === 'char_add' ? creates : rest).push(cmd);
+        const relCounts = {}; // per-run caps for trust/rel ops (slice 9)
         let created = 0;
         for (const cmd of creates) {
             if (!settings.bookkeeperAutoCells) { applied.push('skip: auto-create off'); continue; }
             if (created >= AUTO_CREATE_CAP) { applied.push(`skip: char_add cap (${AUTO_CREATE_CAP}/call)`); continue; }
             try {
-                const r = applyCommand(cmd, turn0, sceneRoles);
+                const r = applyCommand(cmd, turn0, sceneRoles, { relCounts });
                 if (r && r.startsWith('char_add:') && !r.includes('already tracked')) created++;
                 applied.push(r);
             } catch (e) {
@@ -162,7 +181,7 @@ async function runBookkeeper() {
         }
         for (const cmd of rest) {
             try {
-                applied.push(applyCommand(cmd, turn0, sceneRoles));
+                applied.push(applyCommand(cmd, turn0, sceneRoles, { relCounts }));
             } catch (e) {
                 console.warn(`${LOG_PREFIX} bookkeeper command failed:`, cmd.op, e);
             }
@@ -176,6 +195,9 @@ async function runBookkeeper() {
             logScene(sceneRoles);
             applied.push(...applyAutoTier());
         }
+        // Relationship layer: stamp the current stage as "seen" so the next
+        // pass's drift label measures exactly what THIS pass changed.
+        markRelStamps();
         if (applied.length) {
             console.log(`${LOG_PREFIX} bookkeeper applied (${applied.length} change(s)):\n  ` + applied.join('\n  '));
             updateInjection();
