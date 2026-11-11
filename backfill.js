@@ -8,7 +8,8 @@
 //     building cells/bonds/events from real history; seeds tier detection.
 // (Option C digests live in digest.js.)
 
-import { generateRaw, chat, chat_metadata, characters, this_chid, saveChat, openCharacterChat, saveChatDebounced, selected_group } from '../../../../script.js';
+import { generateRaw, chat, chat_metadata, characters, this_chid, saveChat, openCharacterChat, saveChatDebounced } from '../../../../script.js';
+import { selected_group } from '../../../../scripts/group-chats.js';
 import { getState, getLedger } from './state.js';
 import { buildBookkeeperStateSummary } from './inject.js';
 import { parseCommand, applyCommand } from './commands.js';
