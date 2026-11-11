@@ -269,3 +269,14 @@
 .cc-ledger-add input#cc_ledger_add_what { flex: 2 1 0; }
 .cc-ledger-add input#cc_ledger_add_who { flex: 2 1 0; }
 .cc-ledger-add button { flex: 0 0 auto; }
+/* Ledger filter/add fields: black background, white text (also the dropdown
+   options, which otherwise inherit the browser's system colors). */
+.cc-ledger-filters input, .cc-ledger-filters select,
+.cc-ledger-add input, .cc-ledger-add select {
+    background-color: #000;
+    color: #fff;
+}
+.cc-ledger-filters select option, .cc-ledger-add select option {
+    background-color: #000;
+    color: #fff;
+}
