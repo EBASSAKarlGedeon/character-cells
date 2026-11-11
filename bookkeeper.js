@@ -7,35 +7,26 @@
 // The call goes through generateRaw() with its own system prompt — no chat history,
 // no preset formatting — mirroring Summaryception's "clean call" isolation.
 
-import { generateRaw, chat, saveChatDebounced, eventSource, event_types, saveSettingsDebounced } from '../../../../script.js';
+import { generateRaw, chat, saveChatDebounced, eventSource, event_types } from '../../../../script.js';
 import {
     getState, slug, addEvent, findEvent, getLedger,
 } from './state.js';
 import { updateInjection } from './inject.js';
+import { initSettings, getSettings, persistSettings } from './settings.js';
+import { logScene, applyAutoTier } from './tiers.js';
 import { LOG_PREFIX } from './config.js';
-
-const SETTINGS_KEY = 'character_cells';
 
 // ---------------------------------------------------------------- settings
 
 const settings = { bookkeeperEnabled: false, bookkeeperDelayMs: 1500 };
-let _extension_settings = null;
 
-/** Called by index.js at init with the extension_settings object. */
+/** Called by index.js at init (settings themselves live in settings.js). */
 export function initBookkeeper(extension_settings) {
-    _extension_settings = extension_settings;
-    const stored = extension_settings[SETTINGS_KEY];
-    if (stored && typeof stored === 'object') {
-        settings.bookkeeperEnabled = !!stored.bookkeeperEnabled;
-        if (typeof stored.bookkeeperDelayMs === 'number') settings.bookkeeperDelayMs = stored.bookkeeperDelayMs;
-    }
-}
-
-function persistSettings() {
-    if (_extension_settings) {
-        _extension_settings[SETTINGS_KEY] = settings;
-        saveSettingsDebounced();
-    }
+    initSettings(extension_settings);
+    Object.assign(settings, {
+        bookkeeperEnabled: getSettings().bookkeeperEnabled,
+        bookkeeperDelayMs: getSettings().bookkeeperDelayMs,
+    });
 }
 
 let busy = false;
@@ -47,6 +38,7 @@ export function isBookkeeperEnabled() {
 
 export function setBookkeeperEnabled(v) {
     settings.bookkeeperEnabled = !!v;
+    getSettings().bookkeeperEnabled = settings.bookkeeperEnabled;
     persistSettings();
 }
 
@@ -90,12 +82,14 @@ agenda_step(<cellId>)                                           # this NPC advan
 agenda_set(<cellId>, goal="...", location="...", max=<n>)       # set/change an NPC's agenda
 status(<cellId>, "...")                                         # body/condition change (injured, drunk, wet, ...)
 presence(<cellId>, on|off)                                      # character entered or left the scene
+appear(<cellId>, spoke|acted|present)                           # this character took part in THIS scene: spoke = had dialogue, acted = did something on stage, present = visible but passive. One line per participating character.
 chekhov(<chekhovId>, active|locked|fired)                       # plant state change
 turn()                                                          # call once if meaningful time passed
 
 RULES:
 - Only what the scene text actually shows. No speculation.
 - Cell ids MUST come from CURRENT STATE. Never invent ids.
+- appear: emit for EVERY character who took part, exactly once each. The user counts too — use their cell id.
 - who lists for memory_add: every character who witnessed the event, comma-separated. Never widen who on an event that already exists — use witness() instead.
 - imp: 3 = plot-critical, 2 = notable, 1 = minor color.
 - No explanations, no blank commentary. Commands only.`;
@@ -117,7 +111,7 @@ function resolveCell(token) {
 
 /** Parse one command line into { op, args } or null. */
 function parseCommand(line) {
-    const m = line.match(/^\s*(memory_add|witness|bond|agenda_step|agenda_set|status|presence|chekhov|turn)\s*\((.*)\)\s*;?\s*$/i);
+    const m = line.match(/^\s*(memory_add|witness|bond|agenda_step|agenda_set|status|presence|appear|chekhov|turn)\s*\((.*)\)\s*;?\s*$/i);
     if (!m) return null;
     return { op: m[1].toLowerCase(), raw: m[2] };
 }
@@ -140,6 +134,9 @@ function splitArgs(raw) {
 
 const val = (s) => String(s || '').replace(/^["']|["']$/g, '').trim();
 const intOf = (s) => { const n = parseInt(s, 10); return isNaN(n) ? 0 : n; };
+
+/** Participation roles collected by appear() during one bookkeeper run. */
+let sceneRoles = {};
 
 /** Apply one parsed command to the state. Returns a short result string for the log. */
 function applyCommand(cmd, currentTurn) {
@@ -214,6 +211,14 @@ function applyCommand(cmd, currentTurn) {
             if (!on && i >= 0) s.present.splice(i, 1);
             return `presence: ${cell.name} ${on ? 'on' : 'off'}`;
         }
+        case 'appear': {
+            const cell = resolveCell(parts[0]);
+            const role = val(parts[1]).toLowerCase();
+            if (!cell) return 'skip: unknown cell';
+            if (!['spoke', 'acted', 'present'].includes(role)) return 'skip: bad appear role';
+            sceneRoles[cell.id] = role;
+            return `appear: ${cell.name} (${role})`;
+        }
         case 'chekhov': {
             const id = val(parts[0]);
             const st = val(parts[1]).toLowerCase();
@@ -255,6 +260,7 @@ async function runBookkeeper() {
         });
         const lines = String(reply || '').split('\n').map(l => l.trim()).filter(Boolean);
         const turn0 = Number(getState().world.turn) || 0;
+        sceneRoles = {}; // collect this run's appear() roles
         const applied = [];
         for (const line of lines) {
             const cmd = parseCommand(line);
@@ -264,6 +270,12 @@ async function runBookkeeper() {
             } catch (e) {
                 console.warn(`${LOG_PREFIX} bookkeeper command failed:`, line, e);
             }
+        }
+        // Tier auto-detection: the appear() roles are this scene's participation record.
+        if (Object.keys(sceneRoles).length) {
+            logScene(sceneRoles);
+            const tierChanges = applyAutoTier();
+            applied.push(...tierChanges);
         }
         if (applied.length) {
             console.log(`${LOG_PREFIX} bookkeeper applied (${applied.length} change(s)):\n  ` + applied.join('\n  '));

@@ -13,6 +13,7 @@ import { getState, hasState, addCell, findCell, setTier, removeCell, addMemory, 
 import { renderStateHtml } from './render.js';
 import { updateInjection, buildStateBlock, setInjectionEnabled } from './inject.js';
 import { initBookkeeper, initBookkeeperEvents, isBookkeeperEnabled, setBookkeeperEnabled } from './bookkeeper.js';
+import { pinTier, unpinTier, isAutoTierEnabled, setAutoTierEnabled, applyAutoTier } from './tiers.js';
 import { LOG_PREFIX } from './config.js';
 
 const MODULE_NAME = 'character_cells';
@@ -53,6 +54,13 @@ function bindPanelEvents($root) {
         const field = $el.data('field');
         const value = $el.is('[contenteditable]') ? $el.text().trim() : $el.val();
         applyField($el, field, value);
+        saveChatDebounced();
+    });
+
+    $root.on('click.cc', '[data-unpin-cell]', function () {
+        const id = String($(this).data('unpin-cell'));
+        unpinTier(id);
+        refreshPanelIfOpen();
         saveChatDebounced();
     });
 
@@ -150,7 +158,11 @@ function applyField($el, field, value) {
     const list = v => value.split(',').map(s => s.trim()).filter(Boolean);
 
     switch (field) {
-        case 'tier': if (cell && !cell.fixed) cell.tier = value; break;
+        case 'tier':
+            // A manual tier change in the panel PINS the cell (auto-tiering stops
+            // touching it) — same contract as /cc-promote // /cc-demote.
+            if (cell && !cell.fixed) pinTier(cell.id, value);
+            break;
         case 'identity': if (cell) cell.identity = value; break;
         case 'status': if (cell) cell.status = value; break;
         case 'archetype': if (cell) cell.archetype = value; break;
@@ -283,7 +295,7 @@ function registerSlashCommands() {
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'cc-promote',
-        helpString: 'Promote a character one tier (offstage→minor→secondary→main). Usage: /cc-promote Kael',
+        helpString: 'Promote a character one tier (offstage→minor→secondary→main) and PIN it — auto-tiering stops touching it until /cc-autotier unpins. Usage: /cc-promote Kael',
         positionalArgumentList: [SlashCommandArgument.fromProps({
             description: 'character name', typeList: [ARGUMENT_TYPE.STRING], isRequired: true,
         })],
@@ -293,15 +305,15 @@ function registerSlashCommands() {
             if (!cell0) return `No character "${name}" in state. Use /cc-add first.`;
             const ladder = ['offstage', 'minor', 'secondary', 'main'];
             const i = ladder.indexOf(cell0.tier);
-            cell0.tier = ladder[Math.min(i + 1, ladder.length - 1)];
-            saveChatDebounced();
-            return `${cell0.name} promoted to ${cell0.tier}`;
+            pinTier(cell0.id, ladder[Math.min(i + 1, ladder.length - 1)]);
+            saveChatDebounced(); updateInjection();
+            return `${cell0.name} promoted to ${cell0.tier} (pinned — /cc-autotier ${cell0.id} to release)`;
         },
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'cc-demote',
-        helpString: 'Demote a character one tier. Usage: /cc-demote Kael',
+        helpString: 'Demote a character one tier and PIN it — auto-tiering stops touching it until /cc-autotier unpins. Usage: /cc-demote Kael',
         positionalArgumentList: [SlashCommandArgument.fromProps({
             description: 'character name', typeList: [ARGUMENT_TYPE.STRING], isRequired: true,
         })],
@@ -311,9 +323,40 @@ function registerSlashCommands() {
             if (!cell0) return `No character "${name}" in state.`;
             const ladder = ['offstage', 'minor', 'secondary', 'main'];
             const i = ladder.indexOf(cell0.tier);
-            cell0.tier = ladder[Math.max(i - 1, 0)];
+            pinTier(cell0.id, ladder[Math.max(i - 1, 0)]);
+            saveChatDebounced(); updateInjection();
+            return `${cell0.name} demoted to ${cell0.tier} (pinned — /cc-autotier ${cell0.id} to release)`;
+        },
+    }));
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'cc-autotier',
+        helpString: 'Tier auto-detection. /cc-autotier on|off (master switch) | /cc-autotier Kael (release that character\'s pin so auto-tiering manages it again) | /cc-autotier now (recompute immediately) | empty = status',
+        positionalArgumentList: [SlashCommandArgument.fromProps({
+            description: 'on / off / now / character name / (empty = status)', typeList: [ARGUMENT_TYPE.STRING],
+        })],
+        callback: (_args, value) => {
+            const arg = String(value ?? '').trim();
+            const low = arg.toLowerCase();
+            if (!arg) {
+                const pinned = getState().cells.filter(c => c.tierPinned).map(c => c.name);
+                return `Auto-tiering is ${isAutoTierEnabled() ? 'ON' : 'OFF'}.` +
+                    (pinned.length ? ` Pinned (manual): ${pinned.join(', ')}.` : ' No pinned characters.');
+            }
+            if (low === 'on') { setAutoTierEnabled(true); return 'Auto-tiering ENABLED.'; }
+            if (low === 'off') { setAutoTierEnabled(false); return 'Auto-tiering DISABLED.'; }
+            if (low === 'now') {
+                const changes = applyAutoTier();
+                saveChatDebounced();
+                return changes.length ? `Applied: ${changes.join('; ')}` : 'No tier changes suggested.';
+            }
+            const cell0 = findCell(slugOf(arg));
+            if (cell0 && cell0.fixed) return 'The user cell is never auto-tiered or pinned.';
+            if (!cell0) return `No character "${arg}" in state.`;
+            if (!cell0.tierPinned) return `${cell0.name} is already auto-tiered.`;
+            unpinTier(cell0.id);
             saveChatDebounced();
-            return `${cell0.name} demoted to ${cell0.tier}`;
+            return `${cell0.name} released — auto-tiering manages it again from ${cell0.tier}.`;
         },
     }));
 

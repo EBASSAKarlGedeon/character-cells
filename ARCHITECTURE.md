@@ -73,6 +73,8 @@ from the NPC cast lines in the injected block — the user is not an NPC.
 | `render.js` | Builds the panel HTML from state — FF5 internal-states look: colored `<details>` sections, dense "Label: value" lines, bond progress bars. No state logic. |
 | `inject.js` | Builds the injected prompt block from state and registers it with SillyTavern. No UI. |
 | `bookkeeper.js` | The post-reply state updater: a cheap second model call that reads the new scene and emits change commands, which are applied to the state. No UI. |
+| `tiers.js` | Tier auto-detection: rolling participation log from the bookkeeper's `appear()` commands, score bands → tier, hysteresis, manual pin/unpin. No UI. |
+| `settings.js` | The single extension settings object (`extension_settings.character_cells`) shared by all modules, so they don't clobber each other's keys. |
 
 ### The event ledger (slice 3)
 
@@ -119,7 +121,8 @@ tagged `data-field="..."`; the containing item is tagged `data-cell-id` /
   quest / chekhov / note scopes. After every edit: `saveChatDebounced()`.
 - **Events** (see "Data flow" below).
 - **Slash commands**: `/cc-state` (open panel), `/cc-add`, `/cc-promote`,
-  `/cc-demote` (both refuse the fixed user cell by flag), `/cc-stats`,
+  `/cc-demote` (both pin the tier — auto-tiering stops touching the cell),
+  `/cc-autotier` (on/off/now/release-pin), `/cc-stats`,
   `/cc-inject` (preview / toggle the injected block).
 
 ### inject.js — the prompt injection
@@ -182,6 +185,22 @@ Failures show a toast at most once per 5 minutes and never block the chat.
 The pass is OFF by default; `/cc-bookkeeper on|off` toggles it (persisted in
 `extension_settings.character_cells`).
 
+### tiers.js — tier auto-detection
+
+The bookkeeper also emits `appear(<cellId>, spoke|acted|present)` for every
+participant in the scene (the user included). These are recorded on
+`state.tierLog` — a rolling 30-scene participation log. Scoring:
+spoke=3, acted=2, present=1; the rolling score maps to tier bands
+(≥18 main, ≥9 secondary, ≥3 minor, below → offstage), and ≥6 consecutive
+absent scenes force offstage. Hysteresis: a tier only changes after 2
+consecutive turns agree (no flapping on one busy/quiet scene).
+
+A cell that has never appeared in the log gets no suggestion (no data, no
+demotion). Manual override **pins**: `/cc-promote`, `/cc-demote`, or the panel
+tier dropdown set `tierPinned = true` — auto-tiering skips pinned cells until
+`/cc-autotier <name>` (or the ♻ button in CAST & TIERS) releases the pin.
+`/cc-autotier on|off|now` is the master switch / immediate recompute.
+
 ---
 
 ## Data flow
@@ -208,8 +227,6 @@ messages, to protect in-progress editing.
 
 ## What is NOT built yet (next slices)
 
-- **Tier auto-detection** — tiers are manual; the bookkeeper records presence, but
-  nothing promotes/demotes automatically yet.
 - **Perspective rebuild** — injecting the whole block from ONE character's
   knowledge for single-voice generation (full hard-wall filtering).
 - **Pruning** — memories are kept forever; explicit, user-approved compression of

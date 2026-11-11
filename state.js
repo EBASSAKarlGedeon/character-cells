@@ -22,6 +22,8 @@ export function makeCell(name, tier = 'minor', fixed = false) {
         id: slug(name),
         name: name,
         tier: tier, // main / secondary / minor / offstage
+        tierPinned: false,      // true = manual override; auto-tiering skips it
+        tierStreak: 0,          // consecutive agreeing auto-tier suggestions (hysteresis)
         identity: '',           // compressed persona description
         archetype: '',          // reserved for the personality model (later)
         bonds: { user: 0, sparks: 0, grudge: 0 },   // FF5 relationship engine numbers

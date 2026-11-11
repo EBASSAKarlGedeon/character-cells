@@ -167,12 +167,14 @@ export function renderStateHtml(state) {
         `</div>`;
     const userSec = section('user', '🫵', 'USER', 'purple', userBody);
 
-    // ---- CAST & TIERS (teal) — Loreweaver addition: tier control + membership
+    // ---- CAST & TIERS (teal) — Loreweaver addition: tier control + membership.
+    // A pinned cell shows 📌 and an unpin button (♻) — auto-tiering is not
+    // touching it; clicking ♻ releases it back to auto management.
     const castBody = (npcs.length ? npcs.map(c => `
       <div class="cc-item" data-cell-id="${esc(c.id)}">
         ${line(`<b>${esc(c.name)}</b> | tier: <select class="cc-tier-select menu_button" data-field="tier">
           ${['main', 'secondary', 'minor', 'offstage'].map(t => `<option value="${t}" ${c.tier === t ? 'selected' : ''}>${t}</option>`).join('')}
-        </select>`)}
+        </select>${c.tierPinned ? ` 📌 <button class="cc-x" title="Release pin — let auto-tiering manage this character again" data-unpin-cell="${esc(c.id)}">♻</button>` : ''}`)}
         <button class="cc-x" data-del-cell="${esc(c.id)}">✖</button>
       </div>`).join('') : '<div class="cc-none">- No characters yet.</div>') +
       `<div class="cc-row"><input class="cc-new text_input" placeholder="New character name…"><button class="cc-plus" data-add-char="1">＋</button></div>`;
