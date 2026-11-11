@@ -20,6 +20,7 @@ import { pinTier, unpinTier, isAutoTierEnabled, setAutoTierEnabled, applyAutoTie
 import { getSettings, persistSettings } from './settings.js';
 import { buildPerspectiveBlock, previewBlock } from './inject.js';
 import { cleanCopyChat, backfillLedger, cancelBackfill, isBackfillRunning } from './backfill.js';
+import { importInternalStates } from './import-states.js';
 import { rebuildAllDigests } from './digest.js';
 import { runTick, rerollWorldSim } from './tick.js';
 import { LOG_PREFIX } from './config.js';
@@ -147,7 +148,15 @@ function bindPanelEvents($root) {
         if (name) { addCell(name, 'minor'); $inp.val(''); refreshPanelIfOpen(); saveChatDebounced(); }
     });
 
-    // ---- CC TOOLS: strip-copy / backfill / digests
+    // ---- CC TOOLS: import / strip-copy / backfill / digests
+    $root.on('click.cc', '[data-cc-import]', async function () {
+        $(this).prop('disabled', true);
+        try {
+            await importInternalStates();
+            refreshPanelIfOpen();
+            saveChatDebounced();
+        } finally { $(this).prop('disabled', false); }
+    });
     $root.on('click.cc', '[data-cc-clean-copy]', async function () {
         $(this).prop('disabled', true);
         try { await cleanCopyChat(); } finally { $(this).prop('disabled', false); }

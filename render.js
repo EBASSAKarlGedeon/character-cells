@@ -38,8 +38,12 @@ function toolsSection(state) {
   <summary>🧰 CC TOOLS</summary>
   <div class="cc-sec-body">
     <div class="cc-tools-row">
+      <button class="menu_button" data-cc-import="1">Import state from internal states</button>
+      <div class="cc-tools-note">For OLD FF5 chats: parses the most recent internal-states block (exact final values, no model call), creates NPC cells and seeds the turn counter. Old-chat order: Import → Clean copy → Backfill. The backfill then runs in seeded mode (ledger only).</div>
+    </div>
+    <div class="cc-tools-row">
       <button class="menu_button" data-cc-clean-copy="1">Clean copy (strip internal states)</button>
-      <div class="cc-tools-note">Creates a copy of this chat with all old internal-states blocks removed; original untouched. Run this first for old FF5 chats.</div>
+      <div class="cc-tools-note">Creates a copy of this chat with all old internal-states blocks removed; original untouched. Carries over existing cell state (so a run Import first isn't lost).</div>
     </div>
     <div class="cc-tools-row">
       <button class="menu_button" data-cc-backfill="1">${backfillLabel}</button>

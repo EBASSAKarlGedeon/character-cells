@@ -48,9 +48,11 @@ const intOf = (s) => { const n = parseInt(s, 10); return isNaN(n) ? 0 : n; };
  * @param {{op:string, raw:string}} cmd
  * @param {number} currentTurn
  * @param {object} sceneRoles collector for appear() roles (caller-owned)
+ * @param {{onTurn?:function}} [opts] onTurn: reroute turn() to a caller-owned
+ *   counter (backfill keeps a LOCAL virtual turn; the live bookkeeper doesn't)
  * @returns {string} short result string for the log
  */
-export function applyCommand(cmd, currentTurn, sceneRoles) {
+export function applyCommand(cmd, currentTurn, sceneRoles, opts = {}) {
     const parts = splitArgs(cmd.raw);
     const kv = {};
     for (const p of parts) {
@@ -144,6 +146,7 @@ export function applyCommand(cmd, currentTurn, sceneRoles) {
             return `chekhov: ${id} → ${st}`;
         }
         case 'turn': {
+            if (typeof opts.onTurn === 'function') { opts.onTurn(); return 'turn (local counter)'; }
             getState().world.turn = (Number(getState().world.turn) || 0) + 1;
             return 'turn +1';
         }

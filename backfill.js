@@ -10,7 +10,7 @@
 
 import { chat, chat_metadata, characters, this_chid, saveChat, openCharacterChat, saveChatDebounced } from '../../../../script.js';
 import { selected_group } from '../../../../scripts/group-chats.js';
-import { getState, getLedger } from './state.js';
+import { getState, getLedger, hasState } from './state.js';
 import { buildBookkeeperStateSummary } from './inject.js';
 import { parseCommand, applyCommand } from './commands.js';
 import { logScene, applyAutoTier } from './tiers.js';
@@ -69,8 +69,17 @@ export async function cleanCopyChat() {
         return;
     }
 
-    // Fresh state for the copy: the backfill rebuilds it from real history.
-    const metadata = { ...chat_metadata, character_cells: makeFreshState() };
+    // The copy CARRIES OVER existing cell state when there is one (slice 8: the
+    // Import button seeds it first — resetting here would lose the import; the
+    // HTML blocks are stripped from the copy's text, so import must run before
+    // cleaning). Only the backfill progress resets: it's a fresh rebuild here.
+    let carriedState = null;
+    if (hasState()) {
+        carriedState = JSON.parse(JSON.stringify(chat_metadata.character_cells));
+        carriedState.backfill = { running: false };
+        delete carriedState.backfill.progress;
+    }
+    const metadata = { ...chat_metadata, character_cells: carriedState || makeFreshState() };
 
     toastr.info(`Cleaning ${removed} state block(s)…`, 'Character Cells');
     await saveChat({ chatName: newName, withMetadata: metadata, chatData: cleaned, force: true });
@@ -140,6 +149,15 @@ export async function backfillLedger(progress = null) {
     state.backfill = state.backfill || {};
     state.backfill.running = true;
     const sceneRoles = {};
+    // SEEDED MODE (slice 8): the state was imported from a final internal-states
+    // block, so the backfill does LEDGER work only — accumulating commands are
+    // stripped from the grammar AND filtered here, so imported values are never
+    // double-counted.
+    const seeded = !!state.imported;
+    // Turn accounting fix (all backfills): events stamp with a LOCAL virtual
+    // turn counter incremented by turn() commands — historical turns instead
+    // of everything stamped with the current world.turn.
+    let virtualTurn = 0;
 
     try {
         let i = Number(state.backfill.progress) || 0;
@@ -150,15 +168,15 @@ export async function backfillLedger(progress = null) {
             if (!text) break;
             batches++;
             try {
-                const reply = await cheapCall(SYSTEM_PROMPT, buildBackfillPrompt(text), 600);
+                const reply = await cheapCall(SYSTEM_PROMPT, buildBackfillPrompt(text, seeded), 600);
                 const lines = String(reply || '').split('\n').map(l => l.trim()).filter(Boolean);
-                const turn0 = Number(state.world.turn) || 0;
                 let applied = 0;
                 for (const line of lines) {
                     const cmd = parseCommand(line);
                     if (!cmd) continue;
+                    if (seeded && !SEEDED_OPS.has(cmd.op)) continue;
                     try {
-                        const r = applyCommand(cmd, turn0, sceneRoles);
+                        const r = applyCommand(cmd, virtualTurn, sceneRoles, { onTurn: () => { virtualTurn++; } });
                         if (r && !String(r).startsWith('skip') && r !== 'dup') applied++;
                     } catch { /* malformed line — skip */ }
                 }
@@ -199,15 +217,26 @@ export async function backfillLedger(progress = null) {
 export function cancelBackfill() { backfillCancel = true; }
 export function isBackfillRunning() { return backfillRunning; }
 
+/** Ops allowed in SEEDED mode: ledger work only (final values were imported). */
+const SEEDED_OPS = new Set(['memory_add', 'witness', 'appear', 'turn']);
+
 /** Prompt for one backfill batch. State summary + batch scene + grammar. */
-function buildBackfillPrompt(sceneText) {
-    return `CURRENT STATE (JSON):
-${buildBookkeeperStateSummary()}
+function buildBackfillPrompt(sceneText, seeded = false) {
+    const grammar = seeded
+        ? `OUTPUT GRAMMAR — one command per line, nothing else:
+memory_add(what="...", who=<cellId>,<cellId>,... , imp=<1-3>)   # an event worth remembering; who = every character present who saw it
+witness(<eventId>, <cellId>)                                    # an existing event (from recent_events) that this character also witnessed
+appear(<cellId>, spoke|acted|present)                           # who took part and how
+turn()                                                          # emit once when the scene ends a story turn
 
-HISTORICAL SCENE (an early exchange from this chat's past):
-${sceneText}
-
-OUTPUT GRAMMAR — one command per line, nothing else:
+RULES:
+- This chat's state was IMPORTED from the story's final values (bonds, inventory, agendas, bullets are already exact). Do NOT re-derive or re-apply them.
+- Your ONLY job is the event ledger: what happened, who saw it. Relationship moments belong in memory_add even though the numbers are already set.
+- Only what the scene text actually shows. No speculation.
+- Cell ids MUST come from CURRENT STATE. Never invent ids.
+- appear: emit for EVERY character who took part, exactly once each. USER is a participant — use their cell id from CURRENT STATE.
+- imp: 3 = plot-critical, 2 = notable, 1 = minor color.`
+        : `OUTPUT GRAMMAR — one command per line, nothing else:
 memory_add(what="...", who=<cellId>,<cellId>,... , imp=<1-3>)   # an event worth remembering; who = every character present who saw it
 witness(<eventId>, <cellId>)                                    # an existing event (from recent_events) that this character also witnessed
 bond(<cellId>, sparks|grudge, <+1|-1|+2|-2>)                    # relationship shift the scene shows (direct BOND drops: bond(<cellId>, user, -1|-2))
@@ -225,4 +254,12 @@ RULES:
 - imp: 3 = plot-critical, 2 = notable, 1 = minor color.
 - BOND never rises directly: positive shifts go to Sparks; only insults/betrayals lower BOND directly.
 - This is an EARLY scene: characters who act here but have no cell in CURRENT STATE were not tracked yet. Skip commands for them; later batches will cover them.`;
+
+    return `CURRENT STATE (JSON):
+${buildBookkeeperStateSummary()}
+
+HISTORICAL SCENE (an early exchange from this chat's past):
+${sceneText}
+
+${grammar}`;
 }
