@@ -382,6 +382,18 @@ tier dropdown set `tierPinned = true` — auto-tiering skips pinned cells until
 
 ---
 
+## The prose-only companion preset
+
+The companion preset **"Freaky Frankenstein 5.4 Prose-Only (Character Cells)"**
+(in `OpenAI Settings/`) is the Character Cells build of the FF 5.4 preset: the
+internal-states prompts (the `<internal_states>` master block, bond tracker,
+agenda tracker, GM's Notebook, inventory, thoughts, CoTs) are removed there, so
+the app-owned injection block is the only state tracking. Use this preset for
+testing and normal play — the original FF 5.4 Internal States preset would
+double-bookkeep against the extension.
+
+---
+
 ## Data flow
 
 ```
