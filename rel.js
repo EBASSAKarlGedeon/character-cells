@@ -43,10 +43,10 @@ export const TANGLED_STAGES = Object.freeze([
 ]);
 
 export const WARM_LADDER = Object.freeze([
-    'Stranger', 'Noticed', 'Acquaintance', 'Familiar', 'Friendly', 'Close', 'Confidant', 'Intimate', 'Devoted',
+    'Stranger', 'Noticed', 'Acquaintance', 'Familiar', 'Friendly', 'Close', 'Confidant', 'Intimate', 'Treasured', 'Devoted',
 ]);
 export const COLD_LADDER = Object.freeze([
-    'Wary', 'Guarded', 'Resentful', 'Hostile', 'Nemesis',
+    'Wary', 'Guarded', 'Resentful', 'Hostile', 'Bitter', 'Vengeful', 'Archenemy', 'Nemesis',
 ]);
 
 const GENERIC_EMOJI = '❔';
@@ -74,12 +74,17 @@ export function ensureRel(cell) {
 }
 
 /**
- * Stage from BOND (the band technique mirrors tiers.js). BOND clamp is −5..+20,
- * so the cold ladder bottoms out at Nemesis. Exact edges are tuning dials.
+ * Stage from BOND (the band technique mirrors tiers.js). BOND clamp is
+ * −10..+20 (DECIDED 2026-11-11: the cold ladder gained Bitter/Vengeful/
+ * Archenemy below Hostile; Nemesis stays the absolute bottom). Exact edges
+ * are tuning dials.
  */
 export function stageFor(bond) {
-    const b = Math.max(-5, Math.min(20, Number(bond) || 0));
-    if (b <= -5) return 'Nemesis';
+    const b = Math.max(-10, Math.min(20, Number(bond) || 0));
+    if (b <= -10) return 'Nemesis';
+    if (b <= -8) return 'Archenemy';
+    if (b <= -6) return 'Vengeful';
+    if (b === -5) return 'Bitter';
     if (b === -4) return 'Hostile';
     if (b === -3) return 'Resentful';
     if (b === -2) return 'Guarded';
@@ -91,11 +96,12 @@ export function stageFor(bond) {
     if (b <= 8) return 'Friendly';
     if (b <= 11) return 'Close';
     if (b <= 14) return 'Confidant';
-    if (b <= 17) return 'Intimate';
+    if (b <= 16) return 'Intimate';
+    if (b <= 18) return 'Treasured';
     return 'Devoted';
 }
 
-/** Comparable rank across ladders: warm 0..8 upward, cold −1..−5 downward. */
+/** Comparable rank across ladders: warm 0..9 upward, cold −1..−8 downward. */
 export function stageRank(stage) {
     const w = WARM_LADDER.indexOf(stage);
     if (w >= 0) return w;

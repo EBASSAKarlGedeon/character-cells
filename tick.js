@@ -106,7 +106,7 @@ function tickAgendas(s, turn, log) {
             cell.bonds.grudge = 0;
             log.push(`agenda complete (rest): ${cell.name} → healthy, grudge cleared`);
         } else if (/reconcil|apolog|make up/.test(goal)) {
-            cell.bonds.user = clamp((Number(cell.bonds.user) || 0) + 1, -5, 20);
+            cell.bonds.user = clamp((Number(cell.bonds.user) || 0) + 1, -10, 20);
             log.push(`agenda complete (reconcile): ${cell.name} BOND+1`);
         } else if (/research|investigat|study|search/.test(goal)) {
             // plant a passive W1 Chekhov seed from what was investigated
@@ -148,7 +148,7 @@ function tickBonds(s, turn, log) {
         if (cell.tick.sparks >= 5) {
             cell.tick.sparks = 0;
             if ((Number(b.sparks) || 0) >= 7) {
-                b.user = clamp((Number(b.user) || 0) + 1, -5, 20);
+                b.user = clamp((Number(b.user) || 0) + 1, -10, 20);
                 b.sparks = 0;
                 log.push(`bond check: ${cell.name} SPARKS→BOND+1 (now ${b.user})`);
             } else if (!sparked) {
@@ -163,7 +163,7 @@ function tickBonds(s, turn, log) {
         if (cell.tick.grudge >= 3) {
             cell.tick.grudge = 0;
             if ((Number(b.grudge) || 0) >= 5) {
-                b.user = clamp((Number(b.user) || 0) - 1, -5, 20);
+                b.user = clamp((Number(b.user) || 0) - 1, -10, 20);
                 b.grudge = 0;
                 log.push(`bond check: ${cell.name} GRUDGE≥5 → BOND−1 (now ${b.user})`);
             } else if ((Number(b.grudge) || 0) > 0) {

@@ -92,7 +92,7 @@ CURRENT STATE EXCERPT:
 turn ${state.world.turn || 0}; the user is "${userName}".
 
 OUTPUT — key=value lines, one per line, ONLY these keys, only when grounded:
-bond=<-5..20>            # how this character ALREADY feels about the user before this story began (0 = stranger). Depth from card+scene: a 5-year partner ≈ 15-18, a new colleague ≈ 2-3, a sworn arch-enemy ≈ -3..-5
+bond=<-10..20>            # how this character ALREADY feels about the user before this story began (0 = stranger). Depth from card+scene: a 5-year partner ≈ 15-18, a new colleague ≈ 2-3, a sworn arch-enemy ≈ -6..-9
 trust=<-5..20>           # trust already established (negative ONLY for betrayal in the shared history)
 route=<emoji + 1-4 word name>   # this pair's story genre; emoji from: 🌱🌸💐🌹🕊️🪶🧸🏠🔮🧵🧲🌙✨⏳🌅🕰️⚔️🔥🗡️🩸⛓️🏹⚡🕸️🕯️🥀🌑🕳️💀🪞🧨🚪❄️🧊🌊🌫️🐦🌉🎭🎲🤝🫂🛡️🎓🐉🩹💍👑🎶🧪🍂🍯🗝️🐍🌘⚓
 condition=<emoji WORD>   # emotional weather: 💚 STABLE 💛 SHIFTING 💔 HEARTBROKEN 🖤 BETRAYED 💢 RESENTFUL 🔥 PASSIONATE ❄️ COLD 🫧 INFATUATED 🩹 MENDING ⛓️ OBSESSED 😶 NUMB 🌧️ GRIEVING 🤝 RECONCILING ⚡ VOLATILE
@@ -119,13 +119,14 @@ RULES:
 
 /**
  * Apply an origin reply (key=value lines) to a cell. Exported for testing.
- * Only the engine's own clamps apply (−5..+20) — no soft caps.
+ * Only the engine's own clamps apply (−10..+20) — no soft caps.
  */
 export function applyOrigin(cell, reply) {
     const r = ensureRel(cell);
     if (!r) return '';
     const applied = [];
-    const clamp20 = (v) => Math.max(-5, Math.min(20, Number(v) || 0));
+    const clampBond = (v) => Math.max(-10, Math.min(20, Number(v) || 0));
+    const clampTrust = (v) => Math.max(-5, Math.min(20, Number(v) || 0)); // trust keeps its own floor
     const list3 = (raw) => String(raw || '').split(/[|,]/).map(s => s.trim()).filter(Boolean).slice(0, 3);
     for (const line of String(reply || '').split('\n')) {
         const m = line.match(/^\s*(bond|trust|route|condition|likes|dislikes|threshold)\s*=\s*(.+?)\s*$/i);
@@ -134,12 +135,12 @@ export function applyOrigin(cell, reply) {
         const raw = m[2].replace(/^["']|["']$/g, '').trim();
         switch (key) {
             case 'bond': {
-                const v = clamp20(raw);
+                const v = clampBond(raw);
                 if (v !== 0 || String(raw).trim() === '0') { cell.bonds.user = v; applied.push(`bond ${v}`); }
                 break;
             }
             case 'trust': {
-                const v = clamp20(raw);
+                const v = clampTrust(raw);
                 r.trust = v;
                 applied.push(`trust ${v}`);
                 break;
