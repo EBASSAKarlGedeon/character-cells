@@ -8,7 +8,7 @@ import { getContext, extension_settings, renderExtensionTemplateAsync } from '..
 import { SlashCommandParser } from '../../../slash-commands/SlashCommandParser.js';
 import { SlashCommand } from '../../../slash-commands/SlashCommand.js';
 import { ARGUMENT_TYPE, SlashCommandArgument, SlashCommandNamedArgument } from '../../../slash-commands/SlashCommandArgument.js';
-import { saveChatDebounced, eventSource, event_types } from '../../../../script.js';
+import { saveChatDebounced, eventSource, event_types, name1 } from '../../../../script.js';
 import { getState, hasState, addCell, findCell, setTier, removeCell, addMemory, stateStats, addEvent, getLedger } from './state.js';
 import { renderStateHtml } from './render.js';
 import { updateInjection, buildStateBlock, setInjectionEnabled } from './inject.js';
@@ -370,19 +370,39 @@ function registerSlashCommands() {
             SlashCommandNamedArgument.fromProps({ name: 'who', description: 'comma-separated character names/ids who witnessed it', typeList: [ARGUMENT_TYPE.STRING], isRequired: true }),
             SlashCommandNamedArgument.fromProps({ name: 'imp', description: 'importance 1-3', typeList: [ARGUMENT_TYPE.NUMBER] }),
         ],
-        callback: (_args, _value) => {
-            // ST's parser extracts named args before the callback — use _args,
-            // NOT regex on the raw value (the raw value arrives empty).
-            const what = String(_args.what ?? '').trim();
-            const who = String(_args.who ?? '').trim();
+        callback: (_args, value) => {
+            let what = String(_args.what ?? '').trim();
+            let who = String(_args.who ?? '').trim();
             const imp = Number(_args.imp) || 1;
+            // Fallback: if the parser delivered no named args, parse the raw remainder.
+            if (!what || !who) {
+                const s = String(value ?? '');
+                const get = (re) => s.match(re)?.[1]?.trim() ?? '';
+                what = what || get(/what\s*=\s*"([^"]*)"/) || get(/what\s*=\s*(\S+)/);
+                who = who || get(/who\s*=\s*([\s\S]*?)(?=\s+imp\s*=|$)/);
+            }
+            console.log(`${LOG_PREFIX} /cc-event args:`, { what, who, imp });
             if (!what || !who) return 'Usage: /cc-event what="..." who=Name1,Name2 imp=2';
-            const witnesses = who.split(',').map(w => {
-                const c = findCell(slugOf(w.trim())) || getState().cells.find(x => x.name.toLowerCase() === w.trim().toLowerCase());
-                return c ? c.id : null;
-            }).filter(Boolean);
-            if (!witnesses.length) return `No matching character for who="${who}".`;
-            const turn = Number(getState().world.turn) || 0;
+            const state = getState();
+            const resolve = (w) => {
+                const t = w.trim().toLowerCase();
+                const c = state.cells.find(x => x.id === t)
+                    || state.cells.find(x => slugOf(x.name) === t)
+                    || state.cells.find(x => x.name.toLowerCase() === t);
+                if (c) return c.id;
+                // 'user' or the persona name → the fixed user cell
+                if (t === 'user' || (name1 && t === slugOf(name1))) {
+                    return state.cells.find(x => x.fixed)?.id ?? null;
+                }
+                return null;
+            };
+            const witnesses = [...new Set(who.split(',').map(resolve).filter(Boolean))];
+            if (!witnesses.length) {
+                const known = state.cells.map(c => c.name).join(', ') || '(none)';
+                console.warn(`${LOG_PREFIX} /cc-event: no cell matched who="${who}". Cells in state: ${known}`);
+                return `No matching character for who="${who}". Cells in state: ${known}`;
+            }
+            const turn = Number(state.world.turn) || 0;
             const ev = addEvent(what, witnesses, turn, imp);
             saveChatDebounced(); updateInjection();
             console.log(`${LOG_PREFIX} event added (${ev.id}): "${what}" → witnesses: ${ev.witnesses.join(', ')}`);
