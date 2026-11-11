@@ -262,6 +262,10 @@
 .cc-ledger-del { flex-shrink: 0; background: none; border: none; color: #c66; cursor: pointer; }
 .cc-ledger-none { padding: 8px; opacity: 0.6; font-size: 12px; }
 .cc-ledger-add { display: flex; gap: 6px; margin-top: 8px; }
-.cc-ledger-add input, .cc-ledger-add select { min-width: 0; }
-.cc-ledger-add input#cc_ledger_add_what { flex: 2; }
-.cc-ledger-add input#cc_ledger_add_who { flex: 2; }
+/* ST's global .text_input forces width:100%, which lets the select swallow
+   the row and squeeze the two text inputs into slivers. Neutralize it. */
+.cc-ledger-add input, .cc-ledger-add select { width: auto; min-width: 0; flex: 1 1 0; }
+.cc-ledger-add select#cc_ledger_add_imp { flex: 0 0 auto; }
+.cc-ledger-add input#cc_ledger_add_what { flex: 2 1 0; }
+.cc-ledger-add input#cc_ledger_add_who { flex: 2 1 0; }
+.cc-ledger-add button { flex: 0 0 auto; }

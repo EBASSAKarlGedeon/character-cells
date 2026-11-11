@@ -97,15 +97,15 @@ function bind() {
 
     $container.on('input', '#cc_ledger_filter_text', function () {
         filter.text = $(this).val();
-        renderList();
+        updateList();
     });
     $container.on('change', '#cc_ledger_filter_who', function () {
         filter.who = $(this).val();
-        renderList();
+        updateList();
     });
     $container.on('change', '#cc_ledger_filter_imp', function () {
         filter.imp = $(this).val();
-        renderList();
+        updateList();
     });
 
     // inline edits
@@ -143,7 +143,7 @@ function bind() {
         if (i >= 0) {
             ledger.splice(i, 1);
             console.log(`${LOG_PREFIX} ledger browser: deleted event ${id} (manual)`);
-            saveChatDebounced(); updateInjection(); render();
+            saveChatDebounced(); updateInjection(); updateList();
         }
     });
 
@@ -161,15 +161,51 @@ function bind() {
         }
         if (!ids.length) { toastr.warning('No valid witness name given.', 'Character Cells'); return; }
         addEvent(what, ids, Number(state.world.turn) || 0, imp);
-        saveChatDebounced(); updateInjection(); render();
+        saveChatDebounced(); updateInjection();
+        $('#cc_ledger_add_what').val(''); $('#cc_ledger_add_who').val('');
+        updateList();
     });
 }
 
-/** Render only the list + summary (keep filters). */
-function renderList() {
-    // Simplest correct approach: full re-render, then restore focus values.
-    render();
-    $container.find('#cc_ledger_filter_text').val(filter.text);
+/** Refresh ONLY the dynamic parts (summary, witness options, list) inside
+ * the already-mounted drawer. Never touch the drawer frame: replacing it
+ * would reset ST's inline-drawer toggle state and collapse it mid-use. */
+function updateList() {
+    if (!$container) return;
+    const state = getState();
+    const ledger = getLedger();
+    const currentTurn = Number(state.world.turn) || 0;
+
+    const whoOptions = state.cells.map(c => `<option value="${c.id}" ${filter.who === c.id ? 'selected' : ''}>${c.name}${c.fixed ? ' (user)' : ''}</option>`).join('');
+    $container.find('#cc_ledger_filter_who').html(`<option value="">all characters</option>${whoOptions}`);
+
+    const shown = ledger.filter(e => {
+        if (filter.imp && e.importance !== Number(filter.imp)) return false;
+        if (filter.who && !(e.witnesses || []).includes(filter.who)) return false;
+        if (filter.text && !e.what.toLowerCase().includes(filter.text.toLowerCase())) return false;
+        return true;
+    });
+
+    $container.find('.cc-ledger-summary').html(`
+            ${ledger.length} event(s) · turn ${currentTurn} · shown: ${shown.length}
+            — the ledger is immutable; this browser is for inspection and <i>manual</i> fixes only.`);
+
+    const rows = shown.length ? shown.map(e => {
+        const cells = (e.witnesses || []).map(w => findCell(w)?.name || w).join(', ') || 'nobody';
+        return `
+      <div class="cc-ledger-row" data-ev-id="${e.id}">
+        <span class="cc-ledger-id">[${e.id}]</span>
+        <span class="cc-ledger-age cc-age-${ageLabel(e, currentTurn)}">${ageLabel(e, currentTurn)}</span>
+        <span class="cc-ledger-what" contenteditable="true" data-ev-field="what">${e.what}</span>
+        <span class="cc-ledger-meta">
+          imp <span contenteditable="true" data-ev-field="imp">${e.importance}</span> ·
+          turn <span contenteditable="true" data-ev-field="turn">${e.turn}</span> ·
+          witnesses <span contenteditable="true" data-ev-field="witnesses">${cells}</span>
+        </span>
+        <button class="cc-ledger-del" title="Delete this event (manual only — the ledger is never auto-pruned)" data-ev-del="${e.id}">✖</button>
+      </div>`;
+    }).join('') : '<div class="cc-ledger-none">No events match. (Ledger total: ' + ledger.length + ')</div>';
+    $container.find('.cc-ledger-list').html(rows);
 }
 
 /** Mount into the Extensions panel (extensions_settings2 column). */
@@ -179,6 +215,6 @@ export function initLedgerBrowser() {
     render();
     bind();
     // Re-render when the chat changes (ledger belongs to the chat)
-    eventSource.on(event_types.CHAT_CHANGED, render);
+    eventSource.on(event_types.CHAT_CHANGED, updateList);
     console.log(`${LOG_PREFIX} ledger browser mounted`);
 }
