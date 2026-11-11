@@ -72,12 +72,14 @@ from the NPC cast lines in the injected block — the user is not an NPC.
 | `state.js` | The state store: schema factories, lazy creation, mutations (add/remove/tier/memory), the fixed-user-cell invariant, and the shared event ledger. |
 | `render.js` | Builds the panel HTML from state — FF5 internal-states look: colored `<details>` sections, dense "Label: value" lines, bond progress bars. No state logic. |
 | `inject.js` | Builds the injected prompt block from state and registers it with SillyTavern. No UI. |
-| `bookkeeper.js` | The post-reply state updater: a cheap second model call that reads the new scene and emits change commands, which are applied to the state. No UI. |
+| `bookkeeper.js` | The post-reply state updater: a cheap second model call that reads the new scene and emits change commands — including creating characters, factions and quests — which are applied to the state. No UI. |
 | `llm.js` | The shared cheap-call doorway: routes every background model call (bookkeeper, backfill, digests) through the selected Connection Manager profile when one is set, falling back to `generateRaw()` on the active connection. |
 | `tiers.js` | Tier auto-detection: rolling participation log from the bookkeeper's `appear()` commands, score bands → tier, hysteresis, manual pin/unpin. No UI. |
-| `commands.js` | The bookkeeper command grammar — ONE parser + applier shared by the live bookkeeper and the backfill, so the two can never drift. |
-| `ledger-browser.js` | The Extensions-panel drawer ("Character Cells"): the bookkeeper profile dropdown on top, then the event ledger browser — filters (text/witness/importance), inline edits (what/imp/turn/witnesses), manual delete/add — the only place an event can be removed, and only by hand. |
-| `backfill.js` | Strip-copy (chat copy with old internal-states blocks removed) + ledger backfill from chat history in batches. |
+| `commands.js` | The bookkeeper command grammar — ONE parser + applier shared by the live bookkeeper and the backfill, so the two can never drift. Includes the auto-creation ops (`char_add`, `faction_add`, `quest_add`) and the `AUTO_CREATE_CAP`. |
+| `ledger-browser.js` | The Extensions-panel drawer ("Character Cells"): the bookkeeper profile dropdown + bookkeeper/auto-create toggles on top, then the event ledger browser — filters (text/witness/importance), inline edits (what/imp/turn/witnesses), manual delete/add — the only place an event can be removed, and only by hand. |
+| `backfill.js` | Strip-copy (chat copy with old internal-states blocks removed; carries over existing cell state) + ledger backfill from chat history in batches — seeded mode after an import, cast-creating otherwise. |
+| `import-states.js` | Deterministic import of the most recent FF5 `<internal_states>` block in the open chat: pure parser (testable without ST) + seeding into cells/world. No model call. |
+| `tick.js` | The pre-generation engine: referee, task resolution, agendas, bonds, Chekhov fire gates, World Sim — mechanics resolve BEFORE the narrator writes. Hooked on GENERATION_AFTER_COMMANDS; runs once per generation (quiet prompts/dry runs guarded). No UI. |
 | `digest.js` | Option C memory: LANDMARKS (imp-3, always injected verbatim) + per-cell digests of everything older than the hot window. The ledger stays immutable. |
 | `settings.js` | The single extension settings object (`extension_settings.character_cells`) shared by all modules, so they don't clobber each other's keys. |
 
@@ -187,8 +189,10 @@ Known trade-offs:
 ### bookkeeper.js — the state updater (slice 3)
 
 After each AI reply (MESSAGE_RECEIVED + a configurable delay, default 1.5s), one
-cheap model call runs through `generateRaw()` — a raw, preset-free call with its own
-system prompt, mirroring Summaryception's clean-call isolation. The prompt carries:
+cheap model call runs through `cheapCall()` (llm.js — Connection Manager profile
+or preset-free `generateRaw` fallback) with its own system prompt, mirroring
+Summaryception's clean-call isolation. The bookkeeper sees NO character card, no
+lorebook, no chat history — only:
 
 1. **Current state summary** — compact JSON: cells (id/name/tier/bonds/agenda/
    status), the last 20 ledger events *with ids*, chekhov plants, quests.
@@ -203,6 +207,7 @@ witness(eK3x1, daichi)                             # existing event, new witness
 bond(sylpha, user, +1)
 agenda_step(sylpha) / agenda_set(sylpha, goal="...", location="...", max=3)
 status(sylpha, "bruised") / presence(daichi, on|off)
+char_add(name="Mira", desc="quiet archivist", present=offstage, location="the archive")
 chekhov(x123, fired) / turn()
 ```
 
@@ -213,7 +218,36 @@ commands are logged (`console.info`), trigger `updateInjection()` and a chat sav
 Failures show a toast at most once per 5 minutes and never block the chat.
 
 The pass is OFF by default; `/cc-bookkeeper on|off` toggles it (persisted in
-`extension_settings.character_cells`).
+`extension_settings.character_cells`, plus a checkbox in the Extensions drawer).
+
+### Auto-creation (char_add / faction_add / quest_add)
+
+With `settings.bookkeeperAutoCells` (default on, checkbox in the drawer) the
+bookkeeper grammar gains three upsert commands, so a fresh chat builds its own
+cast and the bookkeeper can grow factions/quests as the story establishes them:
+
+- **`char_add(name, desc, present, location)`** — resolves the name through the
+  SAME fuzzy matcher as every other command first (name variants like "Asahi" ↔
+  "Asahi Ishikawa" merge into the existing cell; the fixed user cell is
+  refused). Only a genuine new character creates a cell: tier `minor`,
+  unpinned — auto-tier promotes it from real participation. `desc` fills the
+  identity slot (one line, scene-derived — the bookkeeper cannot see the card,
+  so it cannot invent lore). `present=offstage` marks a named off-screen mover:
+  their agenda location is set and they stay OUT of `state.present`, so the
+  tick engine correctly treats them as off-screen.
+- **`faction_add(name, goal, intel, state, conflict, relations)`** and
+  **`quest_add(type, name, progress, reward)`** — upsert by (fuzzy) name:
+  reusing an existing name updates the provided fields only, never duplicates.
+
+Two belts against model junk:
+
+1. **Two-pass application** — the runner applies `char_add` lines FIRST, then
+   everything else, so a `memory_add`/`appear` in the same reply about a just-
+   created character resolves instead of skipping. The backfill does the same.
+2. **`AUTO_CREATE_CAP` (4)** — at most four new cells per call; the prompt
+   states the cap and the runner enforces it. The prompt also forbids the
+   user, groups/crowds, name-only mentions, and restating unchanged
+   factions/quests.
 
 ### The cheap-call doorway (llm.js)
 
@@ -251,23 +285,84 @@ forever. What ages is the *injected view*, in three tiers:
 `/cc-digest` (stats / force rebuild) manages the cache; digests rebuild
 automatically during injection when stale.
 
-### Converting an old FF5 chat (strip-copy + backfill)
+### tick.js — the pre-generation engine (FF5 mechanics port)
+
+Hooked on GENERATION_AFTER_COMMANDS (before prompt assembly, which script.js
+awaits), so mechanics resolve BEFORE the narrator writes — one tick per
+generation; quiet prompts and dry runs are guarded. The tick owns `world.turn`
+(+1 per generation). What it runs:
+
+- **Referee** — a cheap call reads the user's NEW message: a skilled action
+  with a real failure condition queues `world.task` (actor, action, difficulty),
+  an intimate NSFW exchange sets `world.worldsimSkip='next'` (World Sim pauses
+  one turn).
+- **Task resolution** — when a task was queued: DC locked within the difficulty
+  band, a real d20 roll modified by bonds (≥+4 → −1 … ≥+15 → −4; ≤−3 → +2 …),
+  inventory/title modifiers summed, crit bands on nat20/≥+8 and nat1/≤−8. The
+  outcome lands in `world.roll` and the narrator writes to a decided result.
+- **Off-screen agendas** — every cell NOT in `state.present` advances its
+  agenda (+1/turn); completion applies effects (rest → heal + grudge cleared,
+  reconcile → BOND+1, research → plants a W1 Chekhov seed), then refreshes to
+  a mundane 1–3 step agenda.
+- **Bond ticks** — every 5th turn a Sparks check (≥7 → BOND+1, else decay when
+  no spark was gained since the last check); every 3rd turn a Grudge check
+  (≥5 → BOND−1).
+- **Chekhov gates** — bullets age +1/turn, prune at ≥12 (cap 20); the fire
+  gate opens at age ≥4 with threshold = base (W1 18 / W2 13 / W3 8) − age −
+  proximity from the last tier-log scene roles (spoke −2 / present −1); ≤5 d20
+  checks per turn, highest-weight first; nat1 = jam (status fired + a fired
+  note); nat20 grants −4 to the rest. `settings.autoChekhov` toggles this.
+- **World Sim** — both tables roll per turn into `world.worldsim` (duo mode
+  when ≤2 named NPCs are on stage or none are off-screen);
+  `settings.worldSimEnabled` toggles it.
+- **Fired bullets** surface for one turn as a "CHEKHOV FIRES — weave in now"
+  injection (secrets hidden in perspective mode; standard-table results hidden
+  there too). `/cc-worldsim on|off|now` is the user control.
+
+### Converting an old FF5 chat (import → clean copy → backfill)
 
 Old chats carry their omniscient internal-states HTML in every message — that
-both wastes tokens and leaks what witness filtering is designed to hide. The
-**CC TOOLS** drawer section in the panel handles conversion:
+both wastes tokens and leaks what witness filtering is designed to hide. They
+also contain their **final internal-states block** with exact values — re-
+inferring those with a model would be strictly worse than parsing them. The
+**CC TOOLS** drawer section in the panel runs three steps, IN THIS ORDER:
 
-1. **Clean copy** — creates a NEW chat file (original untouched) with every
-   `<internal_states>…</internal_states>` block stripped (GFX-wrapped form
-   included; prose, dialogue, the time/location header and non-state GFX like
-   phone screens are kept), resets the cell state, and switches to it.
-2. **Backfill** — walks the cleaned chat from turn 0 in batches of 4 messages,
-   one cheap bookkeeper-style call per batch, accumulating cells/bonds/events
-   from real history (Summaryception's backlog processing). Progress is
-   checkpointed in the state: cancelable, resumable, `backfill.done` prevents
-   accidental double runs. At the end, tier detection is seeded from the full
-   participation history.
-3. `/cc-backfill` and `/cc-backfill cancel` do the same from the terminal.
+1. **Import state from internal states** (`import-states.js`) — scans the chat
+   newest-message-first for the most recent `<internal_states>` block, splits
+   it by `<summary>` section markers (no tag balancing — immune to formatting
+   drift), and parses each section with lenient per-section regexes: parse
+   what matches, skip what doesn't, never fail. Creates the NPC cells (names
+   fuzzy-merged across sections — "Asahi" in LOCATIONS joins "Asahi Ishikawa"
+   from AGENDAS; a name appearing only in BONDS still creates a cell), seeds
+   exact bonds/agendas/locations/thoughts, the user cell's
+   inventory/titles/status/mods, active+locked Chekhov bullets (fired/pruned
+   are prose → skipped), notes, quests, factions, the last roll, combat,
+   env/physics, and the TURN header value. No model call. Marks the state
+   `imported = { turn, at }`.
+2. **Clean copy** — creates a NEW chat file (original untouched) with every
+   block stripped (GFX-wrapped form included; prose, dialogue, the
+   time/location header and non-state GFX are kept) and switches to it.
+   Since the import happens BEFORE cleaning and the HTML is gone from the
+   copy's text, the copy **carries the existing cell state over** (deep-cloned;
+   only the backfill progress resets) instead of resetting to fresh.
+3. **Backfill** — walks the cleaned chat from turn 0 in batches of 4 messages,
+   one cheap call per batch (Summaryception's backlog processing). Progress is
+   checkpointed: cancelable, resumable, `backfill.done` prevents double runs.
+   Tier detection is seeded from the full participation history at the end.
+   - **Seeded mode** (automatic after an import): the grammar is LEDGER-ONLY
+     (`memory_add` / `witness` / `appear` / `turn`) and a belt-and-braces
+     filter (`SEEDED_OPS`) drops every accumulating command the model emits
+   anyway — the imported final values are never double-counted. Relationship
+   *moments* still land in the ledger as memories; only numeric re-counting is
+   prevented.
+   - **Normal mode** (fresh chats): the full grammar, now including
+     `char_add` — the backfill creates the cast from history as it goes.
+   - **Turn accounting** (all backfills): events stamp with a LOCAL virtual
+     turn counter advanced by the `turn()` markers in the old text — real
+     historical turns instead of everything stamped with the current
+     `world.turn`, which stays untouched (e.g. at the imported 188).
+
+`/cc-backfill` and `/cc-backfill cancel` do the same from the terminal.
 
 ### tiers.js — tier auto-detection
 
@@ -297,7 +392,7 @@ state.js ──► chat_metadata ──► saveChatDebounced (SillyTavern native
    │                              ▲
    │                              │ saveChatDebounced after applied commands
    │           bookkeeper.js ─────┘
-   │             │ generateRaw (preset-free second call, after each AI reply)
+   │             │ cheapCall (Connection Manager profile / generateRaw fallback, after each AI reply)
    │             ▼
    └──► inject.js: updateInjection()
               │  on: CHAT_CHANGED, MESSAGE_SENT/RECEIVED/DELETED/SWIPED,
@@ -314,8 +409,7 @@ messages, to protect in-progress editing.
 - **Perspective rebuild for group scenes** — the per-character hard wall exists
   in Main Character mode only; a "reply as X" action inside group narration is
   a possible later addition.
-- **Prose-only companion preset** — the FF 5.4 preset still carries its own
-  internal-states prompts; running both would double-bookkeep. Until the companion
-  preset exists, test with a preset that has the FF internal-states prompts removed.
-- NPC inventories have no panel view yet (the data is stored per cell; the USER
-  drawer shows only the user's).
+- **RPG/Dungeon mode** — deeper game-loop structures beyond the FF5 mechanics
+  the tick engine already ports.
+- **Tuning** — Chekhov thresholds and whether the World Sim standard table
+  stays, both pending hand-testing feel.

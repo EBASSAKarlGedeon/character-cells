@@ -97,6 +97,29 @@ reads the new scene and emits state-change commands. Off by default.
 /cc-bookkeeper off    disable
 ```
 
+Both this switch and **auto-creation** are also checkboxes in the Extensions
+panel → "Character Cells" drawer, next to the profile dropdown.
+
+**What the bookkeeper updates automatically:** the event ledger (with witness
+tags), bonds/sparks/grudge, agendas, body status, inventory, titles/skills,
+internal thoughts, Chekhov plants (new + active/locked/fired), and the
+per-scene participation record that drives auto-tiering. With **auto-creation**
+enabled (checkbox in the drawer, on by default) it can also create:
+
+- **New named characters** — `char_add` — when they take part on stage, or
+  off-stage when the scene establishes a named character acting remotely.
+  New cells start tier `minor`, unpinned; auto-tier promotes them as they
+  earn it. At most 4 new characters per turn.
+- **Factions and quests** — when the scene establishes one or materially
+  changes it. Reusing an existing name updates it instead of duplicating.
+
+Auto-creation is capped and conservative by design: never the user, never
+groups/crowds ("the villagers" is not a character), never someone merely
+mentioned. Descriptions are one line, strictly from what the scene showed —
+the bookkeeper cannot see the character card or the lorebook, so it cannot
+invent card lore. Delete junk from the panel if a bad model ever sneaks
+something in; the checkbox turns the whole thing off.
+
 **Which model runs the bookkeeper:** pick a **Connection Manager profile** in
 the Extensions panel → "Character Cells" drawer → *Bookkeeper connection
 profile*. All cheap calls (bookkeeper, backfill, digests) ride that profile
@@ -172,14 +195,25 @@ nothing — the ledger underneath is complete.
 
 ## Converting an old FF5 chat
 
-### `/cc-backfill`
-Rebuilds the event ledger (and cells/bonds/tiers) from the chat's full history,
-walking from turn 0 in batches of 4 messages — one cheap call per batch. The
-same thing as the **Backfill** button in the panel's CC TOOLS drawer.
+Old chats already contain their **final internal-states block** in the last AI
+message — exact values written by FF5 itself. Conversion runs three steps, in
+this order (all buttons live in the panel's CC TOOLS drawer):
 
-Run the **Clean copy** button first (it makes a NEW chat with all old
-internal-states HTML stripped and switches to it — the original chat is
-untouched), then backfill the clean copy.
+1. **Import state from internal states** — parses the most recent block
+   deterministically (no model call, instant): creates the NPC cells, seeds
+   exact bonds/agendas/locations/thoughts, your inventory/titles/status/mods,
+   active+locked Chekhov bullets, notes, quests, factions, the last roll,
+   combat, env/physics, and the turn counter. Fired/pruned bullets are skipped
+   (they are prose, not records). Imported characters start tier `minor`,
+   unpinned.
+2. **Clean copy** — makes a NEW chat with all old internal-states HTML stripped
+   (original untouched) and switches to it. It **carries the imported state
+   over** — that's why Import runs first.
+3. **Backfill** — rebuilds the event ledger from the cleaned chat's history.
+   After an import it runs in **seeded mode**: ledger work only
+   (events/witnesses/participation/turn markers), never touching the imported
+   numbers — no double-counting. On a fresh chat (no import) it backfills
+   normally and can create the cast from history as it goes.
 
 ```
 /cc-backfill          start (or resume a cancelled run)
@@ -188,7 +222,9 @@ untouched), then backfill the clean copy.
 
 A chat that finished a backfill is marked done and won't repeat it. Progress
 shows in the panel while it runs, and tiers are seeded from the full
-participation history at the end.
+participation history at the end. Backfilled events carry their historical
+turn numbers (a local counter advanced by the `turn()` markers in the old
+text), so memory aging math stays correct.
 
 ---
 
@@ -210,5 +246,7 @@ participation history at the end.
 | `/cc-stats` | state size report |
 
 *(The bookkeeper's own command grammar — `memory_add`, `witness`, `bond`,
-`appear`, … — is what the cheap model outputs; you never type it. It lives in
-`commands.js` and is shared by the live bookkeeper and the backfill.)*
+`appear`, `char_add`, `faction_add`, `quest_add`, … — is what the cheap model
+outputs; you never type it. It lives in `commands.js` and is shared by the
+live bookkeeper and the backfill. Auto-creation commands are gated by the
+drawer checkbox and the 4-per-call cap.)*
