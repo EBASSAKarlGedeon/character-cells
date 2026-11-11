@@ -93,6 +93,13 @@ export function renderStateHtml(state) {
     ).join('<br>') : '<div class="cc-none">- None</div>';
     const locationsSec = section('locations', '👤', 'NPC LOCATIONS', 'teal', locs);
 
+    // ---- NPC INVENTORIES (teal) — one editable line per NPC (FF5 inv scope per character)
+    const invs = npcs.length ? npcs.map(c => `
+      <div class="cc-item" data-cell-id="${esc(c.id)}">
+        ${line(`<b>${esc(c.name)}</b> | Inv: ${editable((c.inventory || []).join(', '), 'inventory', 'none')}`)}
+      </div>`).join('') : '<div class="cc-none">- None</div>';
+    const inventoriesSec = section('inventories', '🎒', 'NPC INVENTORIES', 'teal', invs);
+
     // ---- FACTIONS (teal)
     const facBody = (factions.length ? factions.map(f => `
       <div class="cc-item" data-faction-id="${esc(f.id)}">
@@ -226,6 +233,7 @@ export function renderStateHtml(state) {
   ${castSec}
   ${agendasSec}
   ${locationsSec}
+  ${inventoriesSec}
   ${factionsSec}
   ${bondsSec}
   ${questsSec}
