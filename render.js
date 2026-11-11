@@ -238,6 +238,18 @@ export function renderStateHtml(state) {
         line(`<b>Physics:</b> ${editable(world.physics || '', 'physics', '—')}`);
     const physicsSec = section('physics', '🌌', 'PHYSICS, ENGINE & WORLD', 'orange', physicsBody);
 
+    // ---- WORLD SIM (orange) — the per-generation d20 fate roll. The roll / table /
+    // turn stamp come from the tick engine and are display-only; the narrator-facing
+    // Event and Desc are editable (hand edits are the authority, as everywhere else).
+    const ws = world.worldsim || null;
+    let worldsimBody = ws ? (
+        line(`<b>Roll:</b> d20=${esc(String(ws.roll ?? ''))} | Table: ${esc(ws.table || 'standard')} | Turn: ${esc(String(ws.turn ?? ''))}`) + '<br>' +
+        line(`<b>Event:</b> ${editable(ws.event || '', 'worldsim-event', '—')}`) + '<br>' +
+        line(`<b>Desc:</b> ${editable(ws.desc || '', 'worldsim-desc', '—')}`)
+    ) : '<div class="cc-none">- Not rolled yet — rolls happen each generation.</div>';
+    worldsimBody += `<div class="cc-row"><button class="menu_button" data-worldsim-reroll="1">🎲 Reroll now</button></div>`;
+    const worldsimSec = section('worldsim', '🌎', 'WORLD SIM', 'orange', worldsimBody);
+
     // ---- USER (purple) — Loreweaver addition: the user's own drawer, separate from the NPCs.
     // The user is not an NPC, so they get their own section (inventory/titles/status/mods)
     // instead of appearing in NPC AGENDAS / NPC LOCATIONS / CAST & TIERS.
@@ -283,6 +295,7 @@ export function renderStateHtml(state) {
   ${dndSec}
   ${combatSec}
   ${physicsSec}
+  ${worldsimSec}
   ${toolsSection(state)}
 </div>`;
 }

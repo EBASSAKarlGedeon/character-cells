@@ -112,6 +112,14 @@ function bindPanelEvents($root) {
         }
     });
 
+    // 🌎 World Sim: reroll now — same as /cc-worldsim now.
+    $root.on('click.cc', '[data-worldsim-reroll]', function () {
+        const ws = rerollWorldSim();
+        if (ws) toastr.info(ws.replace(/^worldsim: /, ''), 'World Sim');
+        refreshPanelIfOpen();
+        saveChatDebounced();
+    });
+
     $root.on('click.cc', '[data-del-note]', function () {
         const noteId = String($(this).data('del-note'));
         const world = getState().world;
@@ -294,6 +302,10 @@ function applyField($el, field, value) {
         case 'combat-exchange': world.combat.exchange = value; break;
         case 'env': world.env = value; break;
         case 'physics': world.physics = value; break;
+        // World Sim panel section: only the narrator-facing lines are editable.
+        // The roll/table/turn stamp belongs to the tick engine (or a 🎲 reroll).
+        case 'worldsim-event': if (world.worldsim) world.worldsim.event = value; break;
+        case 'worldsim-desc': if (world.worldsim) world.worldsim.desc = value; break;
     }
 }
 
