@@ -69,9 +69,21 @@ from the NPC cast lines in the injected block — the user is not an NPC.
 |---|---|
 | `manifest.json` | Extension manifest (name, version, entry point). |
 | `index.js` | Entry point. Panel plumbing, edit routing, buttons, events, slash commands. |
-| `state.js` | The state store: schema factories, lazy creation, mutations (add/remove/tier/memory), the fixed-user-cell invariant. |
+| `state.js` | The state store: schema factories, lazy creation, mutations (add/remove/tier/memory), the fixed-user-cell invariant, and the shared event ledger. |
 | `render.js` | Builds the panel HTML from state — FF5 internal-states look: colored `<details>` sections, dense "Label: value" lines, bond progress bars. No state logic. |
 | `inject.js` | Builds the injected prompt block from state and registers it with SillyTavern. No UI. |
+| `bookkeeper.js` | The post-reply state updater: a cheap second model call that reads the new scene and emits change commands, which are applied to the state. No UI. |
+
+### The event ledger (slice 3)
+
+Memories live in ONE shared list on the state: `state.ledger`, an array of events
+`{ id, what, witnesses: [cellId], importance: 1-3, turn }`. Every event is stored
+exactly once, tagged with the cells that witnessed it. Per-character knowledge is
+**derived, never copied**: injection filters the ledger by witness
+(`eventsKnownTo(cellId)`), so "store shared, show filtered". Witness lists are
+additive only — a later `witness(...)` command can add a character, but no command
+ever widens an existing list implicitly (Summaryception's rule, adopted).
+`/cc-event` adds events by hand; `/cc-ledger` lists the ledger.
 
 ### state.js — the store
 
@@ -125,15 +137,50 @@ tagged `data-field="..."`; the containing item is tagged `data-cell-id` /
 
 ### Witness filtering (the memory-mixing fix)
 
-For each main/secondary NPC the CAST line carries `Knows ONLY:` — that NPC's own
-memories plus memories in other cells where it appears in `witnesses`. Facts the
-character never saw are never in its context, so the model *cannot* leak them —
-enforced by retrieval filtering, not by instruction. Minor cells get one compact
-line (no knowledge list); offstage cells are omitted entirely.
+For each main/secondary NPC the CAST line carries `Knows ONLY:` — the `what` of
+every ledger event that NPC witnessed (`eventsKnownTo`). Facts the character never
+saw are never in its context, so the model *cannot* leak them — enforced by
+retrieval filtering, not by instruction. Minor cells get one compact line (no
+knowledge list); offstage cells are omitted entirely.
 
-Known trade-off: this filter is only as good as the memories recorded. Until the
-bookkeeper pass (below) writes memories automatically, the filter reflects whatever
-was hand-entered.
+Known trade-offs:
+- In a multi-NPC scene the model still sees every on-stage character's line (it
+  writes all of them, like a novelist); the filter guarantees each *line* contains
+  only what that character knows. A true per-perspective rebuild (whole block from
+  one character's knowledge) is planned for single-voice generation.
+- Memories stay intact forever; only the injected view is filtered and capped
+  (12 events per line). Pruning is a future, explicit, user-approved action.
+
+### bookkeeper.js — the state updater (slice 3)
+
+After each AI reply (MESSAGE_RECEIVED + a configurable delay, default 1.5s), one
+cheap model call runs through `generateRaw()` — a raw, preset-free call with its own
+system prompt, mirroring Summaryception's clean-call isolation. The prompt carries:
+
+1. **Current state summary** — compact JSON: cells (id/name/tier/bonds/agenda/
+   status), the last 20 ledger events *with ids*, chekhov plants, quests.
+2. **The new scene text** — the last user message + the last AI reply only.
+3. **Command grammar + rules.**
+
+The bookkeeper outputs one command per line:
+
+```
+memory_add(what="...", who=sylpha,daichi, imp=2)   # new event + witnesses
+witness(eK3x1, daichi)                             # existing event, new witness
+bond(sylpha, user, +1)
+agenda_step(sylpha) / agenda_set(sylpha, goal="...", location="...", max=3)
+status(sylpha, "bruised") / presence(daichi, on|off)
+chekhov(x123, fired) / turn()
+```
+
+Parsing is defensive: commands are matched against a strict grammar, cell ids are
+resolved leniently (id → slug → exact name → substring), invalid commands are
+skipped with a console note — a malformed reply can never crash the turn. Applied
+commands are logged (`console.info`), trigger `updateInjection()` and a chat save.
+Failures show a toast at most once per 5 minutes and never block the chat.
+
+The pass is OFF by default; `/cc-bookkeeper on|off` toggles it (persisted in
+`extension_settings.character_cells`).
 
 ---
 
@@ -144,10 +191,14 @@ was hand-entered.
                               │
                               ▼
 state.js ──► chat_metadata ──► saveChatDebounced (SillyTavern native)
-   │
+   │                              ▲
+   │                              │ saveChatDebounced after applied commands
+   │           bookkeeper.js ─────┘
+   │             │ generateRaw (preset-free second call, after each AI reply)
+   │             ▼
    └──► inject.js: updateInjection()
               │  on: CHAT_CHANGED, MESSAGE_SENT/RECEIVED/DELETED/SWIPED,
-              │      and GENERATION_STARTED (makeLast, so it always runs)
+              │      bookkeeper results, and GENERATION_STARTED (makeLast)
               ▼
         setExtensionPrompt ──► every generation's prompt (depth 4, in-chat)
 ```
@@ -157,12 +208,12 @@ messages, to protect in-progress editing.
 
 ## What is NOT built yet (next slices)
 
-- **Bookkeeper pass** — after each AI reply, a cheap second model call reads the new
-  scene text + a state summary and emits change commands (`witness(...)`,
-  `bond(+1, ...)`, `agenda_step(...)`, `memory_add(...)`), which the app applies to
-  the JSON. Until then the state only changes by hand.
-- **Tier auto-detection** — tiers are manual; the engine does not yet track who is
-  on-screen/spoke/acted.
+- **Tier auto-detection** — tiers are manual; the bookkeeper records presence, but
+  nothing promotes/demotes automatically yet.
+- **Perspective rebuild** — injecting the whole block from ONE character's
+  knowledge for single-voice generation (full hard-wall filtering).
+- **Pruning** — memories are kept forever; explicit, user-approved compression of
+  old low-importance events is a future slice.
 - **Prose-only companion preset** — the FF 5.4 preset still carries its own
   internal-states prompts; running both would double-bookkeep. Until the companion
   preset exists, test with a preset that has the FF internal-states prompts removed.

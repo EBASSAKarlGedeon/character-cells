@@ -9,9 +9,10 @@ import { SlashCommandParser } from '../../../slash-commands/SlashCommandParser.j
 import { SlashCommand } from '../../../slash-commands/SlashCommand.js';
 import { ARGUMENT_TYPE, SlashCommandArgument, SlashCommandNamedArgument } from '../../../slash-commands/SlashCommandArgument.js';
 import { saveChatDebounced, eventSource, event_types } from '../../../../script.js';
-import { getState, addCell, findCell, setTier, removeCell, addMemory, stateStats } from './state.js';
+import { getState, hasState, addCell, findCell, setTier, removeCell, addMemory, stateStats, addEvent, getLedger } from './state.js';
 import { renderStateHtml } from './render.js';
 import { updateInjection, buildStateBlock, setInjectionEnabled } from './inject.js';
+import { initBookkeeper, initBookkeeperEvents, isBookkeeperEnabled, setBookkeeperEnabled } from './bookkeeper.js';
 
 const MODULE_NAME = 'character_cells';
 
@@ -316,6 +317,15 @@ function registerSlashCommands() {
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'cc-stats',
+        helpString: 'Show character-cells state statistics for this chat.',
+        callback: () => {
+            const s = stateStats();
+            return `cells=${s.cells} memories=${s.memories} events=${s.events} notes=${s.notes} size=${(s.jsonBytes / 1024).toFixed(1)}KB`;
+        },
+    }));
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'cc-inject',
         helpString: 'Preview the exact internal-states block that gets injected into the prompt. Usage: /cc-inject (shows it) | /cc-inject off (disables) | /cc-inject on (re-enables)',
         positionalArgumentList: [SlashCommandArgument.fromProps({
@@ -336,14 +346,64 @@ function registerSlashCommands() {
             return block;
         },
     }));
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'cc-bookkeeper',
+        helpString: 'Toggle or check the bookkeeper pass (auto state updates after each AI reply). Usage: /cc-bookkeeper on | off | (empty = status)',
+        positionalArgumentList: [SlashCommandArgument.fromProps({
+            description: 'on / off / (empty = status)', typeList: [ARGUMENT_TYPE.STRING],
+        })],
+        callback: (_args, value) => {
+            const arg = String(value ?? '').trim().toLowerCase();
+            if (arg === 'on') { setBookkeeperEnabled(true); return 'Bookkeeper ENABLED — it will update state after each AI reply.'; }
+            if (arg === 'off') { setBookkeeperEnabled(false); return 'Bookkeeper DISABLED.'; }
+            return `Bookkeeper is ${isBookkeeperEnabled() ? 'ENABLED' : 'DISABLED'}. Use /cc-bookkeeper on|off.`;
+        },
+    }));
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'cc-event',
+        helpString: 'Add a shared memory event. Usage: /cc-event what="Kael saw the letter" who=Sylpha,Miyu imp=2',
+        namedArgumentList: [
+            SlashCommandNamedArgument.fromProps({ name: 'what', description: 'the event', typeList: [ARGUMENT_TYPE.STRING], isRequired: true }),
+            SlashCommandNamedArgument.fromProps({ name: 'who', description: 'comma-separated character names/ids who witnessed it', typeList: [ARGUMENT_TYPE.STRING], isRequired: true }),
+            SlashCommandNamedArgument.fromProps({ name: 'imp', description: 'importance 1-3', typeList: [ARGUMENT_TYPE.NUMBER] }),
+        ],
+        callback: (_args, value) => {
+            const s = String(value ?? '');
+            const get = (re) => s.match(re)?.[1]?.trim() ?? '';
+            const what = get(/what\s*=\s*"([^"]*)"/) || get(/what\s*=\s*(\S+)/);
+            // who= up to the next key (=...) or end; tolerant of spaces after commas
+            const who = get(/who\s*=\s*([\s\S]*?)(?=\s+\w+\s*=|$)/);
+            const imp = Number(get(/imp\s*=\s*(\d)/)) || 1;
+            if (!what || !who) return 'Usage: /cc-event what="..." who=Name1,Name2 imp=2';
+            const witnesses = who.split(',').map(w => {
+                const c = findCell(slugOf(w.trim())) || getState().cells.find(x => x.name.toLowerCase() === w.trim().toLowerCase());
+                return c ? c.id : null;
+            }).filter(Boolean);
+            if (!witnesses.length) return `No matching character for who="${who}".`;
+            const turn = Number(getState().world.turn) || 0;
+            const ev = addEvent(what, witnesses, turn, imp);
+            saveChatDebounced(); updateInjection();
+            return `Event added (${ev.id}): "${what}" witnessed by ${ev.witnesses.join(', ')}. Ledger size: ${getLedger().length}`;
+        },
+    }));
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'cc-ledger',
+        helpString: 'List the shared event ledger (who witnessed what). Usage: /cc-ledger',
+        callback: () => {
+            const ledger = getLedger();
+            if (!ledger.length) return 'Ledger is empty.';
+            const turn = Number(getState().world.turn) || 0;
+            return ledger.map(e => `[${e.id}] ${e.what} — w: ${e.witnesses.join(', ')} (imp ${e.importance}, turn ${e.turn})`).join('\n') + `\nTotal: ${ledger.length} events, current turn ${turn}`;
+        },
+    }));
 }
 
 function slugOf(name) {
     return String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
-
-/** Master switch for the injection (toggled via /cc-inject on|off). */
-let injectionEnabled = true;
 
 function uid() {
     return 'x' + Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36);
@@ -352,9 +412,11 @@ function uid() {
 // ---------------------------------------------------------------- init
 
 jQuery(() => {
+    initBookkeeper(extension_settings);
     addWandButton();
     addMessageButton();
     initEventHandlers();
     registerSlashCommands();
+    initBookkeeperEvents();
     console.debug('[Character Cells] initialized');
 });

@@ -53,6 +53,22 @@ export function makeWorldState() {
     };
 }
 
+/**
+ * The shared memory EVENT LEDGER (DECIDED 2026-11-11): every memory is stored ONCE,
+ * tagged with the cells that witnessed it. Per-character knowledge is derived at
+ * injection time by filtering this ledger — store shared, show filtered.
+ * Shape: [{ id, what, witnesses: [cellId], importance: 1-3, turn }]
+ */
+export function makeEvent(what, witnesses, turn, importance = 1) {
+    return {
+        id: 'e' + Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36),
+        what: String(what || ''),
+        witnesses: (witnesses || []).map(w => String(w)),
+        importance: Math.max(1, Math.min(3, Number(importance) || 1)),
+        turn: Number(turn) || 0,
+    };
+}
+
 export function slug(name) {
     return String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'unnamed';
 }
@@ -130,12 +146,47 @@ export function addMemory(cellId, what, witnesses, turn, importance = 1) {
     return mem;
 }
 
+// ---------------------------------------------------------------- event ledger
+
+/** The chat's shared event ledger, lazily created. Stored ONCE per event, witness-tagged. */
+export function getLedger() {
+    const s = getState();
+    if (!Array.isArray(s.ledger)) s.ledger = [];
+    return s.ledger;
+}
+
+/** Record an event once (dedup by text). Returns the event. */
+export function addEvent(what, witnesses, turn, importance = 1) {
+    const whatStr = String(what || '').trim();
+    if (!whatStr) return null;
+    const ledger = getLedger();
+    const existing = ledger.find(e => e.what === whatStr);
+    if (existing) {
+        // Never widen an existing witness list (Summaryception rule).
+        return existing;
+    }
+    const ev = makeEvent(whatStr, witnesses, turn, importance);
+    ledger.push(ev);
+    return ev;
+}
+
+/** Events a cell may know: it witnessed them (or is the user cell, which saw everything on stage). */
+export function eventsKnownTo(cellId) {
+    return getLedger().filter(e => (e.witnesses || []).includes(cellId));
+}
+
+/** Event lookup by id (ledger ids are strings like 'eabc123'). */
+export function findEvent(id) {
+    return getLedger().find(e => e.id === id) || null;
+}
+
 /** Serialized size guard — keep the state small enough to be cheap to inject. */
 export function stateStats() {
     const s = getState();
     return {
         cells: s.cells.length,
         memories: s.cells.reduce((n, c) => n + c.memories.length, 0),
+        events: (Array.isArray(s.ledger) ? s.ledger.length : 0),
         notes: s.world.notes.length,
         jsonBytes: JSON.stringify(s).length,
     };

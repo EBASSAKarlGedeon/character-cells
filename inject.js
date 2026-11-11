@@ -9,7 +9,7 @@
 // character never saw are never in their context, so the model cannot leak them.
 
 import { extension_prompt_types, extension_prompt_roles, setExtensionPrompt } from '../../../../script.js';
-import { hasState, getState } from './state.js';
+import { hasState, getState, eventsKnownTo } from './state.js';
 
 const INJECT_KEY = 'character_cells';
 // Depth 4 in-chat: above the last few chat messages, below Authors Note depth 2.
@@ -21,25 +21,18 @@ const TIER_ORDER = { main: 0, secondary: 1, minor: 2, offstage: 3 };
 const csv = (arr) => (Array.isArray(arr) && arr.length ? arr.join(', ') : 'none');
 const orDash = (s) => (String(s || '').trim() || '—');
 
-/** Memories this cell may know: its own + ones it witnessed. */
-function knownMemories(cell, allCells) {
-    const own = (cell.memories || []).map(m => m.what);
-    const witnessed = [];
-    for (const other of allCells) {
-        if (other === cell) continue;
-        for (const m of (other.memories || [])) {
-            if ((m.witnesses || []).includes(cell.id)) witnessed.push(m.what);
-        }
-    }
-    // own first, then witnessed, deduped, capped to keep the block cheap
-    return [...new Set([...own, ...witnessed])].slice(0, 12);
+/** Memories this cell may know: from the shared event ledger, filtered by witness. */
+function knownMemories(cell) {
+    return eventsKnownTo(cell.id)
+        .map(e => e.what)
+        .slice(0, 12); // capped to keep the block cheap
 }
 
 /** Full line for main/secondary cells. */
-function fullCellLine(c, allCells) {
+function fullCellLine(c) {
     const a = c.agenda || {};
     const b = c.bonds || {};
-    const knows = knownMemories(c, allCells);
+    const knows = knownMemories(c);
     const parts = [
         `${c.name} (${c.tier})`,
         orDash(c.identity) !== '—' ? c.identity : '',
@@ -83,7 +76,7 @@ export function buildStateBlock() {
     // Cast, knowledge-filtered per NPC (the memory-mixing fix)
     if (mains.length || minors.length) {
         L.push('CAST:');
-        for (const c of mains) L.push(fullCellLine(c, cells));
+        for (const c of mains) L.push(fullCellLine(c));
         for (const c of minors) L.push(minorCellLine(c));
     }
 
