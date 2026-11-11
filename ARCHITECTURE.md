@@ -138,6 +138,31 @@ tagged `data-field="..."`; the containing item is tagged `data-cell-id` /
   last few chat messages: volatile content sits at the end of the prompt, so the
   stable prefix (preset, card, lorebook) keeps its provider cache.
 
+### Perspective rebuild (Main Character mode)
+
+`buildPerspectiveBlock()` rebuilds the ENTIRE block from one main-tier
+character's knowledge for single-voice generation — the hard wall. Facts the
+character doesn't hold are not in the prompt at all:
+
+- **YOU (<name>)** — the POV character's full own cell (their inner life is
+  theirs to use).
+- **OTHERS, AS YOU KNOW THEM** — observable sketch only: identity + body
+  condition. No bonds, agendas, thoughts or inventories of others.
+- **WHAT YOU KNOW** — the ledger filtered to this character's witness list.
+- **USER** — titles and condition only (observable from outside), not
+  inventory/mods.
+- World sections via `pushWorldSections(L, world, { perspective: true })`:
+  faction **intel/fibs dropped**, **secret Chekhov plants dropped**,
+  **GM NOTES dropped entirely** (author tools — there is no way to know which
+  notes the character has seen).
+
+It applies only in **Main Character mode** (`/cc-mode main`), and only when
+exactly one non-fixed cell is main-tier — otherwise `updateInjection()` falls
+back to the omniscient block (logged in the console). In group narration the
+model voices several characters from one prompt, so the omniscient block
+remains the default there; a per-character perspective for group scenes is a
+possible future addition.
+
 ### Witness filtering (the memory-mixing fix)
 
 For each main/secondary NPC the CAST line carries `Knows ONLY:` — the `what` of
@@ -227,8 +252,9 @@ messages, to protect in-progress editing.
 
 ## What is NOT built yet (next slices)
 
-- **Perspective rebuild** — injecting the whole block from ONE character's
-  knowledge for single-voice generation (full hard-wall filtering).
+- **Perspective rebuild for group scenes** — the per-character hard wall exists
+  in Main Character mode only; a "reply as X" action inside group narration is
+  a possible later addition.
 - **Pruning** — memories are kept forever; explicit, user-approved compression of
   old low-importance events is a future slice.
 - **Prose-only companion preset** — the FF 5.4 preset still carries its own

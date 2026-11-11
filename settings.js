@@ -11,6 +11,7 @@ const settings = {
     bookkeeperEnabled: false,
     bookkeeperDelayMs: 1500,
     autoTierEnabled: true,
+    mainCharacterMode: false, // perspective rebuild: block built from ONE character's knowledge
 };
 
 let _extension_settings = null;
@@ -23,6 +24,7 @@ export function initSettings(extension_settings) {
         if (typeof stored.bookkeeperEnabled === 'boolean') settings.bookkeeperEnabled = stored.bookkeeperEnabled;
         if (typeof stored.bookkeeperDelayMs === 'number') settings.bookkeeperDelayMs = stored.bookkeeperDelayMs;
         if (typeof stored.autoTierEnabled === 'boolean') settings.autoTierEnabled = stored.autoTierEnabled;
+        if (typeof stored.mainCharacterMode === 'boolean') settings.mainCharacterMode = stored.mainCharacterMode;
     }
 }
 

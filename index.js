@@ -11,9 +11,11 @@ import { ARGUMENT_TYPE, SlashCommandArgument, SlashCommandNamedArgument } from '
 import { saveChatDebounced, eventSource, event_types, name1 } from '../../../../script.js';
 import { getState, hasState, addCell, findCell, setTier, removeCell, addMemory, stateStats, addEvent, getLedger } from './state.js';
 import { renderStateHtml } from './render.js';
-import { updateInjection, buildStateBlock, setInjectionEnabled } from './inject.js';
+import { updateInjection, setInjectionEnabled } from './inject.js';
 import { initBookkeeper, initBookkeeperEvents, isBookkeeperEnabled, setBookkeeperEnabled } from './bookkeeper.js';
 import { pinTier, unpinTier, isAutoTierEnabled, setAutoTierEnabled, applyAutoTier } from './tiers.js';
+import { getSettings, persistSettings } from './settings.js';
+import { buildPerspectiveBlock, previewBlock } from './inject.js';
 import { LOG_PREFIX } from './config.js';
 
 const MODULE_NAME = 'character_cells';
@@ -385,7 +387,7 @@ function registerSlashCommands() {
                 setInjectionEnabled(true);
                 return 'Character Cells injection enabled.';
             }
-            const block = buildStateBlock(); // preview regardless of the on/off switch
+            const block = previewBlock(); // preview whatever would actually be injected
             if (!block) return 'No cell state in this chat yet — nothing would be injected.';
             return block;
         },
@@ -450,6 +452,37 @@ function registerSlashCommands() {
             saveChatDebounced(); updateInjection();
             console.log(`${LOG_PREFIX} event added (${ev.id}): "${what}" → witnesses: ${ev.witnesses.join(', ')}`);
             return `Event added (${ev.id}): "${what}" witnessed by ${ev.witnesses.join(', ')}. Ledger size: ${getLedger().length}`;
+        },
+    }));
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'cc-mode',
+        helpString: 'Main Character mode: the injected block is rebuilt from ONE main-tier character\'s knowledge every turn (perspective rebuild — facts they don\'t know are absent from the prompt). Usage: /cc-mode main | group | (empty = status)',
+        positionalArgumentList: [SlashCommandArgument.fromProps({
+            description: 'main / group / (empty = status)', typeList: [ARGUMENT_TYPE.STRING],
+        })],
+        callback: (_args, value) => {
+            const arg = String(value ?? '').trim().toLowerCase();
+            const settings = getSettings();
+            if (arg === 'main') {
+                settings.mainCharacterMode = true;
+                persistSettings();
+                updateInjection();
+                const mains = getState().cells.filter(c => !c.fixed && c.tier === 'main');
+                if (mains.length === 1) return `Main Character mode ON — every reply is written from ${mains[0].name}'s knowledge only.`;
+                return 'Main Character mode ON — but there is no exactly-one main-tier character yet, so the omniscient block stays active until one exists.';
+            }
+            if (arg === 'group' || arg === 'off') {
+                settings.mainCharacterMode = false;
+                persistSettings();
+                updateInjection();
+                return 'Main Character mode OFF — back to the omniscient block (group narration).';
+            }
+            if (!settings.mainCharacterMode) return 'Main Character mode is OFF (omniscient block). Use /cc-mode main to enable.';
+            const mains = getState().cells.filter(c => !c.fixed && c.tier === 'main');
+            return mains.length === 1
+                ? `Main Character mode is ON — perspective of ${mains[0].name}.`
+                : `Main Character mode is ON, but ${mains.length === 0 ? 'no' : mains.length} main-tier character(s) exist — the omniscient block is being used instead.`;
         },
     }));
 

@@ -10,6 +10,8 @@
 
 import { extension_prompt_types, extension_prompt_roles, setExtensionPrompt } from '../../../../script.js';
 import { hasState, getState, eventsKnownTo } from './state.js';
+import { getSettings } from './settings.js';
+import { LOG_PREFIX } from './config.js';
 
 const INJECT_KEY = 'character_cells';
 // Depth 4 in-chat: above the last few chat messages, below Authors Note depth 2.
@@ -56,7 +58,67 @@ function minorCellLine(c) {
 }
 
 /**
- * Build the injected state text. Exported for the /cc-inject preview command.
+ * World-level sections shared by both block builders. In perspective mode
+ * (opts.perspective) the sections shrink to what one character can perceive:
+ * faction intel/fibs and secret Chekhov plants are dropped entirely.
+ * GM NOTES are omniscient-only: they are author tools, and a perspective
+ * generation has no way to know which notes that character has seen.
+ */
+function pushWorldSections(L, world, opts = {}) {
+    const factions = world.factions || [];
+    if (factions.length) {
+        L.push('FACTIONS:');
+        for (const f of factions) {
+            const parts = [`- ${orDash(f.name)}`, `Goal: ${orDash(f.goal)}`];
+            if (!opts.perspective) parts.push(`Intel: ${orDash(f.intel)}`, `Fibs: ${orDash(f.fibs)}`);
+            parts.push(`State: ${orDash(f.fstate)}`, `Conflict: ${orDash(f.conflict)}`, `Relations: ${orDash(f.relations)}`);
+            L.push(parts.join(' | '));
+        }
+    }
+
+    const quests = world.quests || [];
+    if (quests.length) {
+        L.push('QUESTS:');
+        for (const q of quests) L.push(`- ${q.type || 'Side'}: ${orDash(q.name)} — [${orDash(q.progress)}] | Reward: ${orDash(q.reward)}`);
+    }
+
+    if (!opts.perspective) {
+        const notes = (world.notes || []);
+        if (notes.length) {
+            L.push('GM NOTES:');
+            for (const n of notes) L.push(`- [${n.type}] ${n.text}`);
+        }
+    }
+
+    const active = (world.chekhov || []).filter(c => (c.status || 'active') === 'active');
+    if (active.length) {
+        L.push('CHEKHOV PLANTS (planted, not yet fired — do not resolve early):');
+        for (const c of active) {
+            if (opts.perspective && c.secret) continue; // secrets the POV doesn't hold are absent, not flagged
+            L.push(`- ${c.text} (weight ${c.weight ?? 1}, age ${c.age ?? 0})${c.secret ? ' [secret — reveal only to those who know]' : ''}`);
+        }
+    }
+
+    const roll = world.roll || {};
+    if (roll.task) {
+        L.push(`DND TASK SIM: Task: ${orDash(roll.task)} | DC: ${orDash(roll.dc)} | User roll: ${orDash(roll.user)} | NPC roll: ${orDash(roll.npc)} | Delta: ${orDash(roll.delta)} | Outcome: ${orDash(roll.outcome)}`);
+    }
+
+    const combat = world.combat || {};
+    if (combat.mode && combat.mode !== 'N/A') {
+        L.push(`COMBAT: Mode: ${combat.mode} | Engagement: ${orDash(combat.engagement)} | Wounds: ${orDash(combat.wounds)} | Exchange: ${orDash(combat.exchange)}`);
+    }
+
+    if (world.env || world.physics) {
+        L.push(`WORLD: Env: ${orDash(world.env)} | Physics: ${orDash(world.physics)}`);
+    }
+
+    if (world.turn) L.push(`TURN: ${world.turn}`);
+}
+
+/**
+ * Build the injected state text (omniscient block — group narration).
+ * Exported for the /cc-inject preview command.
  * @returns {string} '' when there is nothing worth injecting.
  */
 export function buildStateBlock() {
@@ -83,47 +145,72 @@ export function buildStateBlock() {
     // The user's own scope (FF5 <internal_inv>)
     L.push(`USER: Inv: ${csv(user.inventory)} | Titles/Skills: ${csv(user.titles)} | Status: ${orDash(user.status)} | Mods: ${orDash(user.mods)}`);
 
-    const factions = world.factions || [];
-    if (factions.length) {
-        L.push('FACTIONS:');
-        for (const f of factions) L.push(`- ${orDash(f.name)} | Goal: ${orDash(f.goal)} | Intel: ${orDash(f.intel)} | State: ${orDash(f.fstate)} | Conflict: ${orDash(f.conflict)} | Relations: ${orDash(f.relations)}`);
-    }
-
-    const quests = world.quests || [];
-    if (quests.length) {
-        L.push('QUESTS:');
-        for (const q of quests) L.push(`- ${q.type || 'Side'}: ${orDash(q.name)} — [${orDash(q.progress)}] | Reward: ${orDash(q.reward)}`);
-    }
-
-    const notes = (world.notes || []);
-    if (notes.length) {
-        L.push('GM NOTES:');
-        for (const n of notes) L.push(`- [${n.type}] ${n.text}`);
-    }
-
-    const active = (world.chekhov || []).filter(c => (c.status || 'active') === 'active');
-    if (active.length) {
-        L.push('CHEKHOV PLANTS (planted, not yet fired — do not resolve early):');
-        for (const c of active) L.push(`- ${c.text} (weight ${c.weight ?? 1}, age ${c.age ?? 0})${c.secret ? ' [secret — reveal only to those who know]' : ''}`);
-    }
-
-    const roll = world.roll || {};
-    if (roll.task) {
-        L.push(`DND TASK SIM: Task: ${orDash(roll.task)} | DC: ${orDash(roll.dc)} | User roll: ${orDash(roll.user)} | NPC roll: ${orDash(roll.npc)} | Delta: ${orDash(roll.delta)} | Outcome: ${orDash(roll.outcome)}`);
-    }
-
-    const combat = world.combat || {};
-    if (combat.mode && combat.mode !== 'N/A') {
-        L.push(`COMBAT: Mode: ${combat.mode} | Engagement: ${orDash(combat.engagement)} | Wounds: ${orDash(combat.wounds)} | Exchange: ${orDash(combat.exchange)}`);
-    }
-
-    if (world.env || world.physics) {
-        L.push(`WORLD: Env: ${orDash(world.env)} | Physics: ${orDash(world.physics)}`);
-    }
-
-    if (world.turn) L.push(`TURN: ${world.turn}`);
+    pushWorldSections(L, world);
 
     // Only the header if nothing else has content yet — skip injecting an empty shell.
+    return L.length > 1 ? L.join('\n') : '';
+}
+
+/**
+ * Perspective rebuild (Main Character mode): the whole block from ONE main-tier
+ * character's knowledge for single-voice generation — the hard wall. Facts the
+ * character doesn't hold are not in the prompt at all, so the model cannot leak
+ * them even by accident.
+ *
+ * Returns null when Main Character mode can't apply (no exactly-one main-tier
+ * cell) — the caller then falls back to the omniscient block.
+ * @returns {string|null}
+ */
+export function buildPerspectiveBlock() {
+    if (!hasState()) return null;
+    const state = getState();
+    const world = state.world || {};
+    const cells = state.cells || [];
+    const user = cells.find(c => c.fixed) || {};
+    const npcs = cells.filter(c => !c.fixed);
+    const mains = npcs.filter(c => c.tier === 'main');
+    if (mains.length !== 1) return null; // exactly one voice, or no perspective rebuild
+    const mc = mains[0];
+
+    const L = [];
+    L.push(`[Main Character mode — you write as ${mc.name}. Everything below is what YOU know. Anything not in this block or in the recent scene, you do not know: do not reference it, react to it, or hint at it.]`);
+
+    // YOU — the POV character's own full cell (their inner life is theirs to use)
+    const a = mc.agenda || {};
+    const b = mc.bonds || {};
+    const youParts = [
+        orDash(mc.identity) !== '—' ? mc.identity : '',
+        `BOND ${b.user ?? 0} SPARKS ${b.sparks ?? 0} GRUDGE ${b.grudge ?? 0}`,
+        a.goal ? `Agenda: ${a.goal} (step ${a.step ?? 0}/${a.max ?? 0}) @ ${orDash(a.location)}` : '',
+        `Body: ${orDash(mc.status)}`,
+        (mc.aware || []).length ? `Aware: ${csv(mc.aware)}` : '',
+        mc.fibs ? `Fibs: ${mc.fibs}` : '',
+        (mc.circle || []).length ? `Circle: ${csv(mc.circle)}` : '',
+        (mc.inventory || []).length ? `Inv: ${csv(mc.inventory)}` : '',
+        mc.thoughts ? `Thinks: ${mc.thoughts}` : '',
+    ];
+    L.push(`YOU (${mc.name}): ${youParts.filter(Boolean).join(' | ')}`);
+
+    // OTHERS, AS YOU KNOW THEM — observable sketch only: who they are and what
+    // a stranger could see. No bonds, agendas, thoughts or inventories of others.
+    const others = npcs.filter(c => c.id !== mc.id && c.tier !== 'offstage');
+    if (others.length) {
+        L.push('OTHERS, AS YOU KNOW THEM:');
+        for (const c of others) L.push(`- ${c.name}: ${orDash(c.identity)} | Body: ${orDash(c.status)}`);
+    }
+
+    // WHAT YOU KNOW — the ledger filtered to this character's witness list
+    const knows = eventsKnownTo(mc.id).map(e => e.what).slice(0, 12);
+    if (knows.length) {
+        L.push('WHAT YOU KNOW:');
+        for (const k of knows) L.push(`- ${k}`);
+    }
+
+    // The user, as observable from outside: titles and condition, not pockets.
+    L.push(`USER: Titles/Skills: ${csv(user.titles)} | Status: ${orDash(user.status)}`);
+
+    pushWorldSections(L, world, { perspective: true });
+
     return L.length > 1 ? L.join('\n') : '';
 }
 
@@ -131,9 +218,41 @@ export function buildStateBlock() {
 export let injectionEnabled = true;
 export function setInjectionEnabled(v) { injectionEnabled = !!v; updateInjection(); }
 
+/** The block that would be injected right now — for the /cc-inject preview. */
+export function previewBlock() {
+    if (getSettings().mainCharacterMode) {
+        const perspective = buildPerspectiveBlock();
+        if (perspective !== null) return perspective;
+    }
+    return buildStateBlock();
+}
+
 /** Recompute and (re)register the injection. Safe to call anytime. */
+let lastBlockKind = '';
 export function updateInjection() {
-    const value = injectionEnabled && hasState() ? buildStateBlock() : '';
+    let value = '';
+    let kind = 'off';
+    if (injectionEnabled && hasState()) {
+        if (getSettings().mainCharacterMode) {
+            const perspective = buildPerspectiveBlock();
+            if (perspective !== null) {
+                // null = can't apply (not exactly one main cell) → fallback below.
+                // '' = the POV has nothing to inject yet — that is final, never
+                // fall back to the omniscient block here.
+                value = perspective;
+                kind = perspective ? 'perspective' : 'none';
+            }
+        }
+        if (!value && kind !== 'none') {
+            value = buildStateBlock();
+            kind = value ? 'omniscient' : 'none';
+        }
+    }
+    if (kind !== lastBlockKind) {
+        console.log(`${LOG_PREFIX} injection block: ${kind}` +
+            (kind === 'omniscient' && getSettings().mainCharacterMode ? ' (Main Character mode needs exactly one main-tier character)' : ''));
+        lastBlockKind = kind;
+    }
     if (value) {
         setExtensionPrompt(INJECT_KEY, value, extension_prompt_types.IN_CHAT, INJECT_DEPTH, false, extension_prompt_roles.SYSTEM);
     } else {
