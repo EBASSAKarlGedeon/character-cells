@@ -64,7 +64,15 @@ export function getState() {
     }
     const s = chat_metadata[STATE_KEY];
     // The user cell always exists (FF5: inventory/titles/status tracked for {{user}} only).
-    if (!s.cells.some(c => c.id === USER_CELL_ID)) {
+    // Identified by the `fixed` flag, NOT by id: the id is the persona name's slug, which is
+    // rarely 'user' — the old id-based check re-added a duplicate user cell on every read.
+    for (const c of s.cells) if (!c.fixed && c.id === USER_CELL_ID) c.fixed = true; // older saves
+    let seenUser = false;
+    s.cells = s.cells.filter(c => {
+        if (c.fixed) { if (seenUser) return false; seenUser = true; } // collapse old duplicates
+        return true;
+    });
+    if (!seenUser) {
         s.cells.unshift(makeCell(name1 || USER_CELL_ID, 'main', true));
     }
     // Lightweight migration for chats created before a schema addition.
@@ -95,17 +103,16 @@ export function addCell(name, tier = 'minor') {
 }
 
 export function setTier(id, tier) {
-    if (id === USER_CELL_ID) return null; // user cell is never tiered
     const cell = findCell(id);
-    if (cell) cell.tier = tier;
+    if (!cell || cell.fixed) return null; // user cell is never tiered
+    cell.tier = tier;
     return cell;
 }
 
 export function removeCell(id) {
-    if (id === USER_CELL_ID) return; // protected
     const s = getState();
     const i = s.cells.findIndex(c => c.id === id);
-    if (i >= 0) s.cells.splice(i, 1);
+    if (i >= 0 && !s.cells[i].fixed) s.cells.splice(i, 1); // user cell is protected
 }
 
 /** Add a memory to a cell's known list (dedup by text within the same cell). */

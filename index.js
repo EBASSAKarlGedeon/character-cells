@@ -133,9 +133,10 @@ function bindPanelEvents($root) {
 function applyField($el, field, value) {
     const state = getState();
     const world = state.world;
-    const $cell = $el.closest('[data-cell-id]');
-    const cellId = $cell.data('cell-id');
-    const cell = cellId ? findCell(cellId) : null;
+    const $cell = $el.closest('[data-cell-id], [data-user-cell]');
+    const isUserCell = $cell.is('[data-user-cell]');
+    const cell = isUserCell ? getState().cells.find(c => c.fixed)
+        : ($cell.data('cell-id') ? findCell(String($cell.data('cell-id'))) : null);
     const $fac = $el.closest('[data-faction-id]');
     const faction = $fac.length ? world.factions.find(f => f.id === String($fac.data('faction-id'))) : null;
     const $quest = $el.closest('[data-quest-id]');
@@ -276,14 +277,14 @@ function registerSlashCommands() {
             description: 'character name', typeList: [ARGUMENT_TYPE.STRING], isRequired: true,
         })],
         callback: (_args, name) => {
-            if (slugOf(String(name)) === 'user') return 'The user cell cannot be promoted or demoted.';
+            const cell0 = findCell(slugOf(String(name)));
+            if (cell0 && cell0.fixed) return 'The user cell cannot be promoted or demoted.';
+            if (!cell0) return `No character "${name}" in state. Use /cc-add first.`;
             const ladder = ['offstage', 'minor', 'secondary', 'main'];
-            const cell = findCell(slugOf(String(name)));
-            if (!cell) return `No character "${name}" in state. Use /cc-add first.`;
-            const i = ladder.indexOf(cell.tier);
-            cell.tier = ladder[Math.min(i + 1, ladder.length - 1)];
+            const i = ladder.indexOf(cell0.tier);
+            cell0.tier = ladder[Math.min(i + 1, ladder.length - 1)];
             saveChatDebounced();
-            return `${cell.name} promoted to ${cell.tier}`;
+            return `${cell0.name} promoted to ${cell0.tier}`;
         },
     }));
 
@@ -294,14 +295,14 @@ function registerSlashCommands() {
             description: 'character name', typeList: [ARGUMENT_TYPE.STRING], isRequired: true,
         })],
         callback: (_args, name) => {
-            if (slugOf(String(name)) === 'user') return 'The user cell cannot be promoted or demoted.';
+            const cell0 = findCell(slugOf(String(name)));
+            if (cell0 && cell0.fixed) return 'The user cell cannot be promoted or demoted.';
+            if (!cell0) return `No character "${name}" in state.`;
             const ladder = ['offstage', 'minor', 'secondary', 'main'];
-            const cell = findCell(slugOf(String(name)));
-            if (!cell) return `No character "${name}" in state.`;
-            const i = ladder.indexOf(cell.tier);
-            cell.tier = ladder[Math.max(i - 1, 0)];
+            const i = ladder.indexOf(cell0.tier);
+            cell0.tier = ladder[Math.max(i - 1, 0)];
             saveChatDebounced();
-            return `${cell.name} demoted to ${cell.tier}`;
+            return `${cell0.name} demoted to ${cell0.tier}`;
         },
     }));
 

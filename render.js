@@ -14,7 +14,7 @@ function editable(value, field, placeholder = '') {
     return `<span class="cc-ed" contenteditable="true" data-field="${field}" data-ph="${esc(placeholder)}">${esc(value) || placeholder}</span>`;
 }
 
-function section(id, icon, title, group, bodyHtml, open = true) {
+function section(id, icon, title, group, bodyHtml, open = false) {
     return `
 <details class="cc-sec cc-${group}" data-sec="${id}" ${open ? 'open' : ''}>
   <summary>${icon} ${esc(title)}</summary>
@@ -25,8 +25,8 @@ function section(id, icon, title, group, bodyHtml, open = true) {
 export function renderStateHtml(state) {
     const world = state.world || {};
     const cells = state.cells || [];
-    const userCell = cells.find(c => c.id === 'user');
-    const npcs = cells.filter(c => c.id !== 'user');
+    const userCell = cells.find(c => c.fixed);   // user cell is the fixed one (id is the persona slug)
+    const npcs = cells.filter(c => !c.fixed);    // everyone else is an NPC
     const factions = world.factions || [];
     const quests = world.quests || [];
     const chekhov = world.chekhov || [];
@@ -97,15 +97,6 @@ export function renderStateHtml(state) {
       `<div class="cc-row"><select class="cc-qtype menu_button"><option>Main</option><option>Side</option></select><input class="cc-new text_input" placeholder="New quest…"><button class="cc-plus" data-add-quest="1">＋</button></div>`;
     const questsSec = section('quests', '📜', 'QUESTS', 'purple', questBody);
 
-    // ---- INV & SKILLS (purple) — the user's personal cell (FF5 scope)
-    const u = userCell || {};
-    const invBody =
-        line(`<b>Inv:</b> ${editable((u.inventory || []).join(', '), 'inventory', 'none')}`) + '<br>' +
-        line(`<b>Titles/Skills:</b> ${editable((u.titles || []).join(', '), 'titles', 'none')}`) + '<br>' +
-        line(`<b>Status:</b> ${editable(u.status || '', 'status', 'none')}`) + '<br>' +
-        line(`<b>Mods:</b> ${editable(u.mods || '', 'mods', 'none')}`);
-    const invSec = section('inv', '🎒', 'INV & SKILLS', 'purple', invBody);
-
     // ---- CHEKHOV'S GUN (purple)
     const chLines = (status) => {
         const items = chekhov.filter(c => (c.status || 'active') === status);
@@ -162,6 +153,18 @@ export function renderStateHtml(state) {
         line(`<b>Physics:</b> ${editable(world.physics || '', 'physics', '—')}`);
     const physicsSec = section('physics', '🌌', 'PHYSICS, ENGINE & WORLD', 'orange', physicsBody);
 
+    // ---- USER (purple) — Loreweaver addition: the user's own drawer, separate from the NPCs.
+    // The user is not an NPC, so they get their own section (inventory/titles/status/mods)
+    // instead of appearing in NPC AGENDAS / NPC LOCATIONS / CAST & TIERS.
+    const u = userCell || {};
+    const userBody = `<div class="cc-item" data-user-cell="1">` +
+        line(`<b>Inv:</b> ${editable((u.inventory || []).join(', '), 'inventory', 'none')}`) + '<br>' +
+        line(`<b>Titles/Skills:</b> ${editable((u.titles || []).join(', '), 'titles', 'none')}`) + '<br>' +
+        line(`<b>Status:</b> ${editable(u.status || '', 'status', 'none')}`) + '<br>' +
+        line(`<b>Mods:</b> ${editable(u.mods || '', 'mods', 'none')}`) +
+        `</div>`;
+    const userSec = section('user', '🫵', 'USER', 'purple', userBody);
+
     // ---- CAST & TIERS (teal) — Loreweaver addition: tier control + membership
     const castBody = (npcs.length ? npcs.map(c => `
       <div class="cc-item" data-cell-id="${esc(c.id)}">
@@ -176,19 +179,19 @@ export function renderStateHtml(state) {
     return `
 <div class="cc-panel">
   <div class="cc-topbar">🎬 INTERNAL STATES <span class="cc-turn">(TURN: ${esc(String(world.turn || 0))})</span></div>
+  ${userSec}
+  ${castSec}
   ${agendasSec}
   ${locationsSec}
   ${factionsSec}
   ${bondsSec}
   ${questsSec}
-  ${invSec}
   ${chekhovSec}
   ${notesSec}
   ${thoughtsSec}
   ${dndSec}
   ${combatSec}
   ${physicsSec}
-  ${castSec}
 </div>`;
 }
 
