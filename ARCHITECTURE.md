@@ -75,6 +75,7 @@ from the NPC cast lines in the injected block — the user is not an NPC.
 | `bookkeeper.js` | The post-reply state updater: a cheap second model call that reads the new scene and emits change commands, which are applied to the state. No UI. |
 | `tiers.js` | Tier auto-detection: rolling participation log from the bookkeeper's `appear()` commands, score bands → tier, hysteresis, manual pin/unpin. No UI. |
 | `commands.js` | The bookkeeper command grammar — ONE parser + applier shared by the live bookkeeper and the backfill, so the two can never drift. |
+| `ledger-browser.js` | The Event Ledger browser: a permanent inline-drawer block in the Extensions panel. Filters (text/witness/importance), inline edits (what/imp/turn/witnesses), manual delete/add — the only place an event can be removed, and only by hand. |
 | `backfill.js` | Strip-copy (chat copy with old internal-states blocks removed) + ledger backfill from chat history in batches. |
 | `digest.js` | Option C memory: LANDMARKS (imp-3, always injected verbatim) + per-cell digests of everything older than the hot window. The ledger stays immutable. |
 | `settings.js` | The single extension settings object (`extension_settings.character_cells`) shared by all modules, so they don't clobber each other's keys. |

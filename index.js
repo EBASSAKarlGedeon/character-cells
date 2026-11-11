@@ -13,6 +13,7 @@ import { getState, hasState, addCell, findCell, setTier, removeCell, addMemory, 
 import { renderStateHtml } from './render.js';
 import { digestStats } from './digest.js';
 import { setDigestInfo } from './render.js';
+import { initLedgerBrowser } from './ledger-browser.js';
 import { updateInjection, setInjectionEnabled } from './inject.js';
 import { initBookkeeper, initBookkeeperEvents, isBookkeeperEnabled, setBookkeeperEnabled } from './bookkeeper.js';
 import { pinTier, unpinTier, isAutoTierEnabled, setAutoTierEnabled, applyAutoTier } from './tiers.js';
@@ -586,5 +587,6 @@ jQuery(() => {
     initEventHandlers();
     registerSlashCommands();
     initBookkeeperEvents();
+    initLedgerBrowser();
     console.log(`${LOG_PREFIX} initialized (bookkeeper ${isBookkeeperEnabled() ? 'ON' : 'OFF'})`);
 });
