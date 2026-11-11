@@ -16,7 +16,7 @@
 // the cell at Stranger, and the panel remains the hand-fix authority.
 
 import { chat, characters } from '../../../../script.js';
-import { loadWorldInfo, convertCharacterBook, world_info } from '../world-info.js';
+import { loadWorldInfo, convertCharacterBook, world_info } from '../../../world-info.js';
 import { getState } from './state.js';
 import { ensureRel, parseRoute, parseCondition, markRelStamps } from './rel.js';
 import { cheapCall } from './llm.js';
