@@ -266,9 +266,11 @@ async function runBookkeeper() {
             }
         }
         if (applied.length) {
-            console.info(`${LOG_PREFIX} bookkeeper applied:\n  ` + applied.join('\n  '));
+            console.log(`${LOG_PREFIX} bookkeeper applied (${applied.length} change(s)):\n  ` + applied.join('\n  '));
             updateInjection();
             saveChatDebounced();
+        } else {
+            console.log(`${LOG_PREFIX} bookkeeper ran: 0 changes this turn`);
         }
     } catch (err) {
         console.warn(`${LOG_PREFIX} bookkeeper call failed:`, err);
