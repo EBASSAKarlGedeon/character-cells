@@ -8,8 +8,8 @@
 //    recent events verbatim + landmarks verbatim + one digest paragraph.
 // A bad digest loses nothing: /cc-digest regenerates it from the full ledger.
 
-import { generateRaw } from '../../../../script.js';
 import { getState, getLedger, eventsKnownTo } from './state.js';
+import { cheapCall } from './llm.js';
 import { LOG_PREFIX } from './config.js';
 
 // Tuning constants (kept together, like tiers.js)
@@ -75,12 +75,7 @@ EVENTS (oldest first):
 ${events.join('\n')}`;
 
     try {
-        const reply = await generateRaw({
-            prompt,
-            systemPrompt: SYSTEM,
-            responseLength: 300,
-            trimNames: false,
-        });
+        const reply = await cheapCall(SYSTEM, prompt, 300);
         const text = String(reply || '').trim();
         if (!text) throw new Error('empty digest');
         state.digests[cellId] = {

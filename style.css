@@ -245,6 +245,12 @@
 .cc-tools-note { font-size: 11px; opacity: 0.65; line-height: 1.4; }
 .cc-backfill-progress { font-size: 11px; color: var(--SmartThemeQuoteColor, #7aa); margin-top: 2px; }
 
+/* ---- Bookkeeper profile (Extensions panel, above the ledger) ---- */
+.cc-bk-profile { margin: 4px 0 8px; }
+.cc-bk-profile label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 3px; }
+.cc-bk-profile select { width: 100%; }
+.cc-bk-profile-note { font-size: 11px; opacity: 0.65; font-weight: 400; }
+
 /* ---- Event Ledger browser (Extensions panel) ---- */
 .cc-ledger-summary { font-size: 12px; opacity: 0.75; margin: 6px 0; }
 .cc-ledger-filters { display: flex; gap: 6px; margin-bottom: 8px; }

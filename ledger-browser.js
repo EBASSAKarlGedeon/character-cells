@@ -1,14 +1,23 @@
-// Character Cells — Event Ledger browser (Extensions panel block)
+// Character Cells — settings + Event Ledger browser (Extensions panel block)
 // A permanent inline-drawer block in the Extensions settings panel (the same
-// UI family as Summaryception's snippet browser). Shows the immutable event
-// ledger: filter by character / importance / text; edit `what`, importance
-// and witnesses inline; delete; add. The ledger is never auto-pruned — this
-// browser is the only place an event can be removed, and only by hand.
+// UI family as Summaryception's snippet browser). Top: the bookkeeper profile
+// dropdown — the Connection Manager profile all cheap calls (bookkeeper,
+// backfill, digests) ride without switching the narrator's connection.
+// Below: the immutable event ledger — filter by character / importance / text;
+// edit `what`, importance and witnesses inline; delete; add. The ledger is
+// never auto-pruned — this browser is the only place an event can be removed,
+// and only by hand.
 
 import { eventSource, event_types, saveChatDebounced, name1 } from '../../../../script.js';
 import { getState, getLedger, findCell, slug, addEvent } from './state.js';
 import { updateInjection } from './inject.js';
+import { getSettings, persistSettings } from './settings.js';
 import { LOG_PREFIX } from './config.js';
+
+let ConnectionManagerRequestService = null;
+try {
+    ({ ConnectionManagerRequestService } = await import('../../shared.js'));
+} catch { /* Connection Manager not installed — dropdown shows a note instead */ }
 
 let $container = null;
 let filter = { text: '', who: '', imp: '' };
@@ -56,10 +65,16 @@ function render() {
     <div class="character_cells_settings">
       <div class="inline-drawer">
         <div class="inline-drawer-toggle inline-drawer-header">
-            <b data-i18n="Character Cells — Event Ledger">Character Cells — Event Ledger</b>
+            <b data-i18n="Character Cells">Character Cells</b>
             <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
         </div>
         <div class="inline-drawer-content">
+          <div class="cc-bk-profile">
+            <label for="cc_bk_profile">Bookkeeper connection profile <span class="cc-bk-profile-note">(cheap model for state updates, backfill & digests — does not change your active connection)</span></label>
+            ${ConnectionManagerRequestService
+                ? `<select id="cc_bk_profile"></select>`
+                : `<div class="cc-bk-profile-note">Connection Manager extension is not available — cheap calls use the active connection.</div>`}
+          </div>
           <div class="cc-ledger-summary">
             ${ledger.length} event(s) · turn ${currentTurn} · shown: ${shown.length}
             — the ledger is immutable; this browser is for inspection and <i>manual</i> fixes only.
@@ -208,11 +223,36 @@ function updateList() {
     $container.find('.cc-ledger-list').html(rows);
 }
 
+/** Wire the bookkeeper profile dropdown via the Connection Manager's own
+ * helper: it lists supported profiles, groups them by API type and keeps
+ * itself updated when profiles are created/edited/deleted. Selection is
+ * persisted in extension settings (empty = active connection). */
+function initProfileDropdown() {
+    if (!ConnectionManagerRequestService) return;
+    const settings = getSettings();
+    try {
+        ConnectionManagerRequestService.handleDropdown(
+            '#cc_bk_profile',
+            settings.bookkeeperProfileId || '',
+            (profile) => {
+                settings.bookkeeperProfileId = profile?.id || '';
+                persistSettings();
+                console.log(`${LOG_PREFIX} bookkeeper profile: ${profile ? `"${profile.name}"` : '(none — active connection)'}`);
+            },
+        );
+    } catch (err) {
+        console.warn(`${LOG_PREFIX} profile dropdown failed to mount:`, err);
+        $container.find('#cc_bk_profile').replaceWith(
+            '<div class="cc-bk-profile-note">Could not load the profile list — cheap calls use the active connection.</div>');
+    }
+}
+
 /** Mount into the Extensions panel (extensions_settings2 column). */
 export function initLedgerBrowser() {
     $container = $('<div id="character_cells_container" class="extension_container"></div>');
     $('#extensions_settings2').append($container);
     render();
+    initProfileDropdown();
     bind();
     // Re-render when the chat changes (ledger belongs to the chat)
     eventSource.on(event_types.CHAT_CHANGED, updateList);

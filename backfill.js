@@ -8,12 +8,13 @@
 //     building cells/bonds/events from real history; seeds tier detection.
 // (Option C digests live in digest.js.)
 
-import { generateRaw, chat, chat_metadata, characters, this_chid, saveChat, openCharacterChat, saveChatDebounced } from '../../../../script.js';
+import { chat, chat_metadata, characters, this_chid, saveChat, openCharacterChat, saveChatDebounced } from '../../../../script.js';
 import { selected_group } from '../../../../scripts/group-chats.js';
 import { getState, getLedger } from './state.js';
 import { buildBookkeeperStateSummary } from './inject.js';
 import { parseCommand, applyCommand } from './commands.js';
 import { logScene, applyAutoTier } from './tiers.js';
+import { cheapCall } from './llm.js';
 import { LOG_PREFIX } from './config.js';
 
 // ================================================================ 1. strip-copy
@@ -149,12 +150,7 @@ export async function backfillLedger(progress = null) {
             if (!text) break;
             batches++;
             try {
-                const reply = await generateRaw({
-                    prompt: buildBackfillPrompt(text),
-                    systemPrompt: SYSTEM_PROMPT,
-                    responseLength: 600,
-                    trimNames: false,
-                });
+                const reply = await cheapCall(SYSTEM_PROMPT, buildBackfillPrompt(text), 600);
                 const lines = String(reply || '').split('\n').map(l => l.trim()).filter(Boolean);
                 const turn0 = Number(state.world.turn) || 0;
                 let applied = 0;

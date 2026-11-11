@@ -8,12 +8,13 @@
 // no preset formatting — mirroring Summaryception's "clean call" isolation.
 // The command grammar lives in commands.js (shared with the backfill).
 
-import { generateRaw, chat, saveChatDebounced, eventSource, event_types } from '../../../../script.js';
+import { chat, saveChatDebounced, eventSource, event_types } from '../../../../script.js';
 import { getState, getLedger } from './state.js';
 import { updateInjection } from './inject.js';
 import { parseCommand, applyCommand } from './commands.js';
 import { logScene, applyAutoTier } from './tiers.js';
 import { initSettings, getSettings, persistSettings } from './settings.js';
+import { cheapCall } from './llm.js';
 import { LOG_PREFIX } from './config.js';
 
 // ---------------------------------------------------------------- settings
@@ -114,12 +115,7 @@ async function runBookkeeper() {
     if (!sceneText) return;
     busy = true;
     try {
-        const reply = await generateRaw({
-            prompt: buildBookkeeperPrompt(sceneText),
-            systemPrompt: SYSTEM_PROMPT,
-            responseLength: 400,
-            trimNames: false,
-        });
+        const reply = await cheapCall(SYSTEM_PROMPT, buildBookkeeperPrompt(sceneText), 400);
         const lines = String(reply || '').split('\n').map(l => l.trim()).filter(Boolean);
         const turn0 = Number(getState().world.turn) || 0;
         const sceneRoles = {};

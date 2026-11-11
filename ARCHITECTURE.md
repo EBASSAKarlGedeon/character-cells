@@ -73,9 +73,10 @@ from the NPC cast lines in the injected block — the user is not an NPC.
 | `render.js` | Builds the panel HTML from state — FF5 internal-states look: colored `<details>` sections, dense "Label: value" lines, bond progress bars. No state logic. |
 | `inject.js` | Builds the injected prompt block from state and registers it with SillyTavern. No UI. |
 | `bookkeeper.js` | The post-reply state updater: a cheap second model call that reads the new scene and emits change commands, which are applied to the state. No UI. |
+| `llm.js` | The shared cheap-call doorway: routes every background model call (bookkeeper, backfill, digests) through the selected Connection Manager profile when one is set, falling back to `generateRaw()` on the active connection. |
 | `tiers.js` | Tier auto-detection: rolling participation log from the bookkeeper's `appear()` commands, score bands → tier, hysteresis, manual pin/unpin. No UI. |
 | `commands.js` | The bookkeeper command grammar — ONE parser + applier shared by the live bookkeeper and the backfill, so the two can never drift. |
-| `ledger-browser.js` | The Event Ledger browser: a permanent inline-drawer block in the Extensions panel. Filters (text/witness/importance), inline edits (what/imp/turn/witnesses), manual delete/add — the only place an event can be removed, and only by hand. |
+| `ledger-browser.js` | The Extensions-panel drawer ("Character Cells"): the bookkeeper profile dropdown on top, then the event ledger browser — filters (text/witness/importance), inline edits (what/imp/turn/witnesses), manual delete/add — the only place an event can be removed, and only by hand. |
 | `backfill.js` | Strip-copy (chat copy with old internal-states blocks removed) + ledger backfill from chat history in batches. |
 | `digest.js` | Option C memory: LANDMARKS (imp-3, always injected verbatim) + per-cell digests of everything older than the hot window. The ledger stays immutable. |
 | `settings.js` | The single extension settings object (`extension_settings.character_cells`) shared by all modules, so they don't clobber each other's keys. |
@@ -213,6 +214,22 @@ Failures show a toast at most once per 5 minutes and never block the chat.
 
 The pass is OFF by default; `/cc-bookkeeper on|off` toggles it (persisted in
 `extension_settings.character_cells`).
+
+### The cheap-call doorway (llm.js)
+
+Every background model call — bookkeeper, backfill, digests — goes through
+`cheapCall()` in `llm.js`. When `settings.bookkeeperProfileId` names a
+Connection Manager profile, the call rides that profile via
+`ConnectionManagerRequestService.sendRequest()` (the profile's API, key, model
+and generation preset) **without switching the narrator's live connection** —
+it is a one-off request, not a profile activation. A profile call that fails or
+returns empty falls back to the active connection for that one call. With no
+profile selected (the default), everything behaves as before: a preset-free
+`generateRaw()` call on the active connection. The dropdown lives at the top of
+the "Character Cells" drawer in the Extensions panel (Connection Manager's
+`handleDropdown` — self-updating on profile create/update/delete); the
+selection is persisted in extension settings and survives chat switches, since
+it is a device-level choice, not per-chat state.
 
 ### Memory over a long chat: landmarks + digests (the ledger stays immutable)
 
