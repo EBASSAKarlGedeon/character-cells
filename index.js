@@ -11,11 +11,15 @@ import { ARGUMENT_TYPE, SlashCommandArgument, SlashCommandNamedArgument } from '
 import { saveChatDebounced, eventSource, event_types, name1 } from '../../../../script.js';
 import { getState, hasState, addCell, findCell, setTier, removeCell, addMemory, stateStats, addEvent, getLedger } from './state.js';
 import { renderStateHtml } from './render.js';
+import { digestStats } from './digest.js';
+import { setDigestInfo } from './render.js';
 import { updateInjection, setInjectionEnabled } from './inject.js';
 import { initBookkeeper, initBookkeeperEvents, isBookkeeperEnabled, setBookkeeperEnabled } from './bookkeeper.js';
 import { pinTier, unpinTier, isAutoTierEnabled, setAutoTierEnabled, applyAutoTier } from './tiers.js';
 import { getSettings, persistSettings } from './settings.js';
 import { buildPerspectiveBlock, previewBlock } from './inject.js';
+import { cleanCopyChat, backfillLedger, cancelBackfill, isBackfillRunning } from './backfill.js';
+import { rebuildAllDigests } from './digest.js';
 import { LOG_PREFIX } from './config.js';
 
 const MODULE_NAME = 'character_cells';
@@ -139,6 +143,34 @@ function bindPanelEvents($root) {
         const $inp = $root.find('[data-sec="cast"] .cc-new');
         const name = $inp.val().trim();
         if (name) { addCell(name, 'minor'); $inp.val(''); refreshPanelIfOpen(); saveChatDebounced(); }
+    });
+
+    // ---- CC TOOLS: strip-copy / backfill / digests
+    $root.on('click.cc', '[data-cc-clean-copy]', async function () {
+        $(this).prop('disabled', true);
+        try { await cleanCopyChat(); } finally { $(this).prop('disabled', false); }
+    });
+    $root.on('click.cc', '[data-cc-backfill]', async function () {
+        const $btn = $(this);
+        if (isBackfillRunning()) { cancelBackfill(); $btn.text('Cancelling…'); return; }
+        try {
+            await backfillLedger(msg => {
+                const $p = $root.find('.cc-backfill-progress');
+                if ($p.length) $p.text(msg);
+            });
+        } finally {
+            refreshPanelIfOpen();
+        }
+    });
+    $root.on('click.cc', '[data-cc-digest]', async function () {
+        $(this).prop('disabled', true).text('Rebuilding…');
+        try {
+            const n = await rebuildAllDigests();
+            toastr.info(`Rebuilt ${n} digest(s).`, 'Character Cells');
+        } finally {
+            $(this).prop('disabled', false).text('Rebuild digests');
+            refreshPanelIfOpen();
+        }
     });
 }
 
@@ -487,6 +519,40 @@ function registerSlashCommands() {
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'cc-digest',
+        helpString: 'Force-rebuild all per-character memory digests (the summary of events older than the recent window). Usage: /cc-digest (rebuild) | (empty = stats)',
+        positionalArgumentList: [SlashCommandArgument.fromProps({
+            description: '(empty = show digest stats)', typeList: [ARGUMENT_TYPE.STRING],
+        })],
+        callback: async (_args, value) => {
+            const arg = String(value ?? '').trim().toLowerCase();
+            const st = digestStats();
+            if (arg !== 'rebuild' && arg !== 'force') {
+                return `Digests: ${st.cached} fresh / ${st.stale} stale / ${st.needed} cells with old memories. Hot window: ${st.hotWindow} turns. Landmark cap: ${st.landmarkCap}. Use /cc-digest rebuild to force a rebuild.`;
+            }
+            const n = await rebuildAllDigests();
+            updateInjection();
+            return `Rebuilt ${n} digest(s).`;
+        },
+    }));
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'cc-backfill',
+        helpString: 'Rebuild the event ledger from this chat\'s full history (run AFTER the strip-copy). Batches of messages, one cheap call each; cancelable and resumable. Usage: /cc-backfill (start/resume) | /cc-backfill cancel',
+        positionalArgumentList: [SlashCommandArgument.fromProps({
+            description: '(empty = start) / cancel', typeList: [ARGUMENT_TYPE.STRING],
+        })],
+        callback: async (_args, value) => {
+            const arg = String(value ?? '').trim().toLowerCase();
+            if (arg === 'cancel') { cancelBackfill(); return 'Backfill cancel requested — it stops after the current batch.'; }
+            if (isBackfillRunning()) return 'A backfill is already running — /cc-backfill cancel to stop it.';
+            await backfillLedger(msg => console.log(`${LOG_PREFIX} ${msg}`));
+            updateInjection();
+            return 'Backfill finished (or was cancelled — see the toast).';
+        },
+    }));
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'cc-ledger',
         helpString: 'List the shared event ledger (who witnessed what). Usage: /cc-ledger',
         callback: () => {
@@ -511,6 +577,10 @@ function uid() {
 
 jQuery(() => {
     initBookkeeper(extension_settings);
+    setDigestInfo(() => {
+        const s = digestStats();
+        return s.needed ? `(${s.cached} fresh / ${s.stale} stale)` : '(nothing old yet)';
+    });
     addWandButton();
     addMessageButton();
     initEventHandlers();

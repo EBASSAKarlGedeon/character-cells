@@ -11,6 +11,7 @@
 import { extension_prompt_types, extension_prompt_roles, setExtensionPrompt } from '../../../../script.js';
 import { hasState, getState, eventsKnownTo } from './state.js';
 import { getSettings } from './settings.js';
+import { landmarksKnownTo, getDigest } from './digest.js';
 import { LOG_PREFIX } from './config.js';
 
 const INJECT_KEY = 'character_cells';
@@ -23,18 +24,33 @@ const TIER_ORDER = { main: 0, secondary: 1, minor: 2, offstage: 3 };
 const csv = (arr) => (Array.isArray(arr) && arr.length ? arr.join(', ') : 'none');
 const orDash = (s) => (String(s || '').trim() || '—');
 
-/** Memories this cell may know: from the shared event ledger, filtered by witness. */
+/** Recent memories this cell may know: ledger filtered by witness, newest 12. */
 function knownMemories(cell) {
     return eventsKnownTo(cell.id)
         .map(e => e.what)
-        .slice(0, 12); // capped to keep the block cheap
+        .slice(-12); // capped to keep the block cheap (newest win)
+}
+
+/**
+ * Knowledge section for one cell: LANDMARKS (imp-3, always verbatim) + recent
+ * events + the cached digest for everything older. `digest` is pre-resolved
+ * text ('' = none); passing it in keeps buildStateBlock() synchronous.
+ */
+function knowledgeParts(cell, digest = '') {
+    const landmarks = landmarksKnownTo(cell.id).map(e => e.what);
+    const parts = [];
+    if (landmarks.length) parts.push(`Landmarks (never forget): ${landmarks.join(' | ')}`);
+    const recent = knownMemories(cell);
+    if (recent.length) parts.push(`Knows (recent): ${recent.join(' | ')}`);
+    if (digest) parts.push(`Longer ago (summary): ${digest}`);
+    return parts;
 }
 
 /** Full line for main/secondary cells. */
-function fullCellLine(c) {
+function fullCellLine(c, digest = '') {
     const a = c.agenda || {};
     const b = c.bonds || {};
-    const knows = knownMemories(c);
+    const knows = knowledgeParts(c, digest);
     const parts = [
         `${c.name} (${c.tier})`,
         orDash(c.identity) !== '—' ? c.identity : '',
@@ -118,10 +134,12 @@ function pushWorldSections(L, world, opts = {}) {
 
 /**
  * Build the injected state text (omniscient block — group narration).
+ * `digests` (optional): map cellId → digest text, pre-resolved by the caller
+ * (updateInjection resolves asynchronously; /cc-inject preview passes {}).
  * Exported for the /cc-inject preview command.
  * @returns {string} '' when there is nothing worth injecting.
  */
-export function buildStateBlock() {
+export function buildStateBlock(digests = {}) {
     if (!hasState()) return '';
     const state = getState();
     const world = state.world || {};
@@ -138,7 +156,7 @@ export function buildStateBlock() {
     // Cast, knowledge-filtered per NPC (the memory-mixing fix)
     if (mains.length || minors.length) {
         L.push('CAST:');
-        for (const c of mains) L.push(fullCellLine(c));
+        for (const c of mains) L.push(fullCellLine(c, digests[c.id] || ''));
         for (const c of minors) L.push(minorCellLine(c));
     }
 
@@ -159,9 +177,10 @@ export function buildStateBlock() {
  *
  * Returns null when Main Character mode can't apply (no exactly-one main-tier
  * cell) — the caller then falls back to the omniscient block.
+ * @param {object} digests optional cellId → digest text map
  * @returns {string|null}
  */
-export function buildPerspectiveBlock() {
+export function buildPerspectiveBlock(digests = {}) {
     if (!hasState()) return null;
     const state = getState();
     const world = state.world || {};
@@ -199,11 +218,11 @@ export function buildPerspectiveBlock() {
         for (const c of others) L.push(`- ${c.name}: ${orDash(c.identity)} | Body: ${orDash(c.status)}`);
     }
 
-    // WHAT YOU KNOW — the ledger filtered to this character's witness list
-    const knows = eventsKnownTo(mc.id).map(e => e.what).slice(0, 12);
-    if (knows.length) {
+    // WHAT YOU KNOW — landmarks verbatim + recent verbatim + the digest blur
+    const knowParts = knowledgeParts(mc, digests[mc.id] || '');
+    if (knowParts.length) {
         L.push('WHAT YOU KNOW:');
-        for (const k of knows) L.push(`- ${k}`);
+        for (const k of knowParts) L.push(`- ${k}`);
     }
 
     // The user, as observable from outside: titles and condition, not pockets.
@@ -227,14 +246,28 @@ export function previewBlock() {
     return buildStateBlock();
 }
 
-/** Recompute and (re)register the injection. Safe to call anytime. */
+/** Recompute and (re)register the injection. Async: digest rebuilds are LLM calls. */
 let lastBlockKind = '';
-export function updateInjection() {
+let updateSeq = 0;
+export async function updateInjection() {
+    const seq = ++updateSeq; // only the latest run may register a block
     let value = '';
     let kind = 'off';
     if (injectionEnabled && hasState()) {
+        // Resolve per-cell digests up front (cheap: cached; a stale one costs
+        // one small call). Failures return '' — never block the injection.
+        const digests = {};
+        try {
+            const state = getState();
+            const currentTurn = Number(state.world.turn) || 0;
+            for (const cell of state.cells) {
+                if (cell.fixed) continue;
+                digests[cell.id] = await getDigest(cell.id, currentTurn);
+            }
+        } catch { /* digest unavailable → blocks just omit the blur */ }
+
         if (getSettings().mainCharacterMode) {
-            const perspective = buildPerspectiveBlock();
+            const perspective = buildPerspectiveBlock(digests);
             if (perspective !== null) {
                 // null = can't apply (not exactly one main cell) → fallback below.
                 // '' = the POV has nothing to inject yet — that is final, never
@@ -244,10 +277,11 @@ export function updateInjection() {
             }
         }
         if (!value && kind !== 'none') {
-            value = buildStateBlock();
+            value = buildStateBlock(digests);
             kind = value ? 'omniscient' : 'none';
         }
     }
+    if (seq !== updateSeq) return; // a newer update superseded this one
     if (kind !== lastBlockKind) {
         console.log(`${LOG_PREFIX} injection block: ${kind}` +
             (kind === 'omniscient' && getSettings().mainCharacterMode ? ' (Main Character mode needs exactly one main-tier character)' : ''));
@@ -258,4 +292,17 @@ export function updateInjection() {
     } else {
         setExtensionPrompt(INJECT_KEY, '', extension_prompt_types.NONE, INJECT_DEPTH);
     }
+}
+
+/** Compact state summary for the backfill's bookkeeper-style calls. */
+export function buildBookkeeperStateSummary() {
+    const s = getState();
+    const world = s.world || {};
+    const out = { turn: world.turn || 0 };
+    out.cells = (s.cells || []).map(c => ({ id: c.id, name: c.name, tier: c.tier, bonds: c.bonds, agenda: c.agenda, status: c.status }));
+    const ledger = Array.isArray(s.ledger) ? s.ledger : [];
+    if (ledger.length) out.recent_events = ledger.slice(-20).map(e => ({ id: e.id, what: e.what, w: e.witnesses }));
+    if ((world.chekhov || []).length) out.chekhov = world.chekhov.map(c => ({ id: c.id, text: c.text, status: c.status || 'active' }));
+    if ((world.quests || []).length) out.quests = world.quests;
+    return JSON.stringify(out);
 }

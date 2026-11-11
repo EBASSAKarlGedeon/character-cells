@@ -22,6 +22,45 @@ function section(id, icon, title, group, bodyHtml, open = false) {
 </details>`;
 }
 
+// CC TOOLS section — strip-copy / backfill / digest controls.
+// stateSummary comes from index.js's scope (passed via options), not the state object.
+function toolsSection(state) {
+    const bf = state.backfill || {};
+    const running = !!bf.running;
+    const progress = bf.progress ? `message ${bf.progress}` : '';
+    const ds = digestInfo();
+    const backfillLabel = bf.done ? 'Backfill done — run again to redo'
+        : running ? `STOP backfill (${progress})`
+        : bf.progress ? `RESUME backfill (${progress})`
+        : 'Backfill ledger from chat history';
+    return `
+<details class="cc-sec cc-orange" data-sec="tools">
+  <summary>🧰 CC TOOLS</summary>
+  <div class="cc-sec-body">
+    <div class="cc-tools-row">
+      <button class="menu_button" data-cc-clean-copy="1">Clean copy (strip internal states)</button>
+      <div class="cc-tools-note">Creates a copy of this chat with all old internal-states blocks removed; original untouched. Run this first for old FF5 chats.</div>
+    </div>
+    <div class="cc-tools-row">
+      <button class="menu_button" data-cc-backfill="1">${backfillLabel}</button>
+      <div class="cc-tools-note">Rebuilds the event ledger from the cleaned chat's full history — one cheap call per 4 messages. Cancelable, resumable, costs one call per batch.</div>
+      ${running ? '<div class="cc-backfill-progress">running…</div>' : ''}
+    </div>
+    <div class="cc-tools-row">
+      <button class="menu_button" data-cc-digest="1">Rebuild digests</button>
+      <div class="cc-tools-note">Re-summarizes old (pre-hot-window) memories per character. The ledger is never touched — digests are cached views. ${ds}</div>
+    </div>
+  </div>
+</details>`;
+}
+
+let _digestInfoFn = null;
+/** index.js injects the digest-stats formatter to avoid a render→digest import cycle. */
+export function setDigestInfo(fn) { _digestInfoFn = fn; }
+function digestInfo() {
+    try { return _digestInfoFn ? _digestInfoFn() : ''; } catch { return ''; }
+}
+
 export function renderStateHtml(state) {
     const world = state.world || {};
     const cells = state.cells || [];
@@ -196,6 +235,7 @@ export function renderStateHtml(state) {
   ${dndSec}
   ${combatSec}
   ${physicsSec}
+  ${toolsSection(state)}
 </div>`;
 }
 

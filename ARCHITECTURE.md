@@ -74,6 +74,9 @@ from the NPC cast lines in the injected block — the user is not an NPC.
 | `inject.js` | Builds the injected prompt block from state and registers it with SillyTavern. No UI. |
 | `bookkeeper.js` | The post-reply state updater: a cheap second model call that reads the new scene and emits change commands, which are applied to the state. No UI. |
 | `tiers.js` | Tier auto-detection: rolling participation log from the bookkeeper's `appear()` commands, score bands → tier, hysteresis, manual pin/unpin. No UI. |
+| `commands.js` | The bookkeeper command grammar — ONE parser + applier shared by the live bookkeeper and the backfill, so the two can never drift. |
+| `backfill.js` | Strip-copy (chat copy with old internal-states blocks removed) + ledger backfill from chat history in batches. |
+| `digest.js` | Option C memory: LANDMARKS (imp-3, always injected verbatim) + per-cell digests of everything older than the hot window. The ledger stays immutable. |
 | `settings.js` | The single extension settings object (`extension_settings.character_cells`) shared by all modules, so they don't clobber each other's keys. |
 
 ### The event ledger (slice 3)
@@ -174,10 +177,10 @@ knowledge list); offstage cells are omitted entirely.
 Known trade-offs:
 - In a multi-NPC scene the model still sees every on-stage character's line (it
   writes all of them, like a novelist); the filter guarantees each *line* contains
-  only what that character knows. A true per-perspective rebuild (whole block from
-  one character's knowledge) is planned for single-voice generation.
-- Memories stay intact forever; only the injected view is filtered and capped
-  (12 events per line). Pruning is a future, explicit, user-approved action.
+  only what that character knows. The perspective rebuild (Main Character mode)
+  closes this fully for single-voice generation.
+- Memories stay intact forever; only the injected view is filtered, tiered
+  (landmarks / recent / digest) and capped.
 
 ### bookkeeper.js — the state updater (slice 3)
 
@@ -209,6 +212,44 @@ Failures show a toast at most once per 5 minutes and never block the chat.
 
 The pass is OFF by default; `/cc-bookkeeper on|off` toggles it (persisted in
 `extension_settings.character_cells`).
+
+### Memory over a long chat: landmarks + digests (the ledger stays immutable)
+
+The event ledger is never pruned, merged or rewritten — every event lives
+forever. What ages is the *injected view*, in three tiers:
+
+1. **LANDMARKS** — importance-3 events are injected verbatim, witness-filtered,
+   no matter how old (most recent 10). A turn-300 boss fight still shows at
+   turn 1000.
+2. **Recent ring** — the newest 12 witnessed events (last ~40 turns),
+   exactly as before.
+3. **Digest** — everything older that isn't a landmark, summarized into ONE
+   paragraph per cell by a cheap isolated `generateRaw` call, cached in
+   `state.digests[cellId]` and rebuilt only when the cold event set changes
+   (count + newest id). A failed rebuild keeps the last good digest; a bad
+   digest loses nothing (`/cc-digest` forces a rebuild) because the ledger is
+   complete underneath.
+
+`/cc-digest` (stats / force rebuild) manages the cache; digests rebuild
+automatically during injection when stale.
+
+### Converting an old FF5 chat (strip-copy + backfill)
+
+Old chats carry their omniscient internal-states HTML in every message — that
+both wastes tokens and leaks what witness filtering is designed to hide. The
+**CC TOOLS** drawer section in the panel handles conversion:
+
+1. **Clean copy** — creates a NEW chat file (original untouched) with every
+   `<internal_states>…</internal_states>` block stripped (GFX-wrapped form
+   included; prose, dialogue, the time/location header and non-state GFX like
+   phone screens are kept), resets the cell state, and switches to it.
+2. **Backfill** — walks the cleaned chat from turn 0 in batches of 4 messages,
+   one cheap bookkeeper-style call per batch, accumulating cells/bonds/events
+   from real history (Summaryception's backlog processing). Progress is
+   checkpointed in the state: cancelable, resumable, `backfill.done` prevents
+   accidental double runs. At the end, tier detection is seeded from the full
+   participation history.
+3. `/cc-backfill` and `/cc-backfill cancel` do the same from the terminal.
 
 ### tiers.js — tier auto-detection
 
@@ -255,8 +296,6 @@ messages, to protect in-progress editing.
 - **Perspective rebuild for group scenes** — the per-character hard wall exists
   in Main Character mode only; a "reply as X" action inside group narration is
   a possible later addition.
-- **Pruning** — memories are kept forever; explicit, user-approved compression of
-  old low-importance events is a future slice.
 - **Prose-only companion preset** — the FF 5.4 preset still carries its own
   internal-states prompts; running both would double-bookkeep. Until the companion
   preset exists, test with a preset that has the FF internal-states prompts removed.
