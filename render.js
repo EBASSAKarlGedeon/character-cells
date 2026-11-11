@@ -157,7 +157,9 @@ export function renderStateHtml(state) {
     // The user is not an NPC, so they get their own section (inventory/titles/status/mods)
     // instead of appearing in NPC AGENDAS / NPC LOCATIONS / CAST & TIERS.
     const u = userCell || {};
-    const userBody = `<div class="cc-item" data-user-cell="1">` +
+    // Plain block (not .cc-item — that's a flex row for one-line entries with a
+    // delete button; the USER drawer is a multi-line stack and must read as one).
+    const userBody = `<div class="cc-user-block" data-user-cell="1">` +
         line(`<b>Inv:</b> ${editable((u.inventory || []).join(', '), 'inventory', 'none')}`) + '<br>' +
         line(`<b>Titles/Skills:</b> ${editable((u.titles || []).join(', '), 'titles', 'none')}`) + '<br>' +
         line(`<b>Status:</b> ${editable(u.status || '', 'status', 'none')}`) + '<br>' +

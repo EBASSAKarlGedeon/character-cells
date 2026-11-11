@@ -13,6 +13,7 @@ import { getState, hasState, addCell, findCell, setTier, removeCell, addMemory, 
 import { renderStateHtml } from './render.js';
 import { updateInjection, buildStateBlock, setInjectionEnabled } from './inject.js';
 import { initBookkeeper, initBookkeeperEvents, isBookkeeperEnabled, setBookkeeperEnabled } from './bookkeeper.js';
+import { LOG_PREFIX } from './config.js';
 
 const MODULE_NAME = 'character_cells';
 
@@ -418,5 +419,5 @@ jQuery(() => {
     initEventHandlers();
     registerSlashCommands();
     initBookkeeperEvents();
-    console.debug('[Character Cells] initialized');
+    console.debug(`${LOG_PREFIX} initialized (bookkeeper ${isBookkeeperEnabled() ? 'ON' : 'OFF'})`);
 });

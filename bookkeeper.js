@@ -12,6 +12,7 @@ import {
     getState, slug, addEvent, findEvent, getLedger,
 } from './state.js';
 import { updateInjection } from './inject.js';
+import { LOG_PREFIX } from './config.js';
 
 const SETTINGS_KEY = 'character_cells';
 
@@ -261,16 +262,16 @@ async function runBookkeeper() {
             try {
                 applied.push(applyCommand(cmd, turn0));
             } catch (e) {
-                console.warn('[Character Cells] bookkeeper command failed:', line, e);
+                console.warn(`${LOG_PREFIX} bookkeeper command failed:`, line, e);
             }
         }
         if (applied.length) {
-            console.info('[Character Cells] bookkeeper applied:\n  ' + applied.join('\n  '));
+            console.info(`${LOG_PREFIX} bookkeeper applied:\n  ` + applied.join('\n  '));
             updateInjection();
             saveChatDebounced();
         }
     } catch (err) {
-        console.warn('[Character Cells] bookkeeper call failed:', err);
+        console.warn(`${LOG_PREFIX} bookkeeper call failed:`, err);
         // Surface repeated failures once per 5 minutes, never block the turn.
         if (Date.now() - lastErrorShown > 5 * 60 * 1000) {
             lastErrorShown = Date.now();

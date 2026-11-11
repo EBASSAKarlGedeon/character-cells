@@ -188,6 +188,9 @@
     margin: 4px 0;
 }
 
+/* USER drawer body — plain vertical stack, one line per field */
+#cc_dialog .cc-user-block { margin: 4px 0; }
+
 /* small controls — quiet Catppuccin styling */
 #cc_dialog .cc-x {
     background: none;
