@@ -3,17 +3,20 @@
 //
 // A fresh cell defaults to BOND 0 → Stranger — wrong for a maid who raised the
 // user or a sworn arch-enemy. When a NEW NPC cell is born, ONE cheap one-off
-// call reads that character's CARD (the only place the card is ever read) plus
-// the scene that introduced them, and seeds the starting block: bonds.user,
-// trust, route, condition, and (when the card establishes them) known
-// likes/dislikes and an open threshold. No soft caps (DECIDED 2026-11-11): a
-// 5-year girlfriend enters Intimate; the ladder discipline protects per-scene
-// movement, not starting position.
+// call reads that character's CARD (the only place the card is ever read),
+// their LOREBOOK entries (embedded book, character-linked book, and global
+// books filtered to entries that mention the character), plus the scene that
+// introduced them, and seeds the starting block: bonds.user, trust, route,
+// condition, and (when the lore establishes them) known likes/dislikes and an
+// open threshold. No soft caps (DECIDED 2026-11-11): a 5-year girlfriend
+// enters Intimate; the ladder discipline protects per-scene movement, not
+// starting position.
 //
 // Never fatal, never blocking: runs after the reply, a failed/empty call leaves
 // the cell at Stranger, and the panel remains the hand-fix authority.
 
 import { chat, characters } from '../../../../script.js';
+import { loadWorldInfo, convertCharacterBook, world_info } from '../world-info.js';
 import { getState } from './state.js';
 import { ensureRel, parseRoute, parseCondition, markRelStamps } from './rel.js';
 import { cheapCall } from './llm.js';
@@ -49,6 +52,47 @@ function cardText(card) {
     return parts.join('\n').slice(0, 4000);
 }
 
+/**
+ * Lorebook entries to ground the origin call (DECIDED 2026-11-11: the card is
+ * not enough — the maid's backstory often lives in the lorebook).
+ * Sources, in order: the card's embedded book, the character-linked book,
+ * then the active GLOBAL books — but globals are shared by every character,
+ * so only entries whose keys or content actually mention the character's name
+ * are included. Entries are capped so the cheap call stays cheap.
+ * Exported for testing.
+ */
+export async function collectLore(card, name) {
+    const n = normName(name);
+    const parts = [];
+    const seen = new Set();
+    const addBook = (book, global) => {
+        if (!book || typeof book !== 'object') return;
+        for (const e of Object.values(book.entries || {})) {
+            if (!e || e.disable) continue;
+            const content = String(e.content || '').trim();
+            if (!content) continue;
+            const keys = [...(e.key || []), ...(e.keysecondary || [])].map(k => String(k).trim()).filter(Boolean);
+            if (global && n) {
+                const haystack = normName(keys.join(' ') + ' ' + content);
+                // a global book speaks for everyone — keep only entries that
+                // mention the full name OR any name word of 3+ letters (lore
+                // usually says "Mia", not "Mia Valentine")
+                const words = n.split(' ').filter(w => w.length >= 3);
+                if (!haystack.includes(n) && !words.some(w => haystack.includes(w))) continue;
+            }
+            if (seen.has(content)) continue;
+            seen.add(content);
+            parts.push(`${keys.length ? `[${keys.join(', ')}] ` : ''}${content.slice(0, 500)}`);
+        }
+    };
+    try { addBook(convertCharacterBook(card?.data?.character_book || card?.character_book), false); } catch { /* embedded book malformed — skip */ }
+    try { if (card?.data?.extensions?.world) addBook(await loadWorldInfo(card.data.extensions.world), false); } catch { /* linked book missing — skip */ }
+    for (const g of (world_info?.globalSelect || [])) {
+        try { addBook(await loadWorldInfo(g), true); } catch { /* global book missing — skip */ }
+    }
+    return parts.join('\n').slice(0, 2500);
+}
+
 /** The exchange that just happened (same shape as the bookkeeper's scene text). */
 function buildSceneText() {
     const state = getState();
@@ -79,11 +123,15 @@ export async function seedOrigin(cell, sceneOverride = '') {
 
     const card = findCard(cell.name);
     const cardBlock = cardText(card);
+    const lore = await collectLore(card, cell.name).catch(() => '');
     const scene = String(sceneOverride || buildSceneText()).slice(0, 4000);
     const userName = state.cells.find(c => c.fixed)?.name || 'User';
 
     const prompt = `CHARACTER (name: ${cell.name}):
 ${cardBlock || '(no character card found — judge only from the scene)'}
+
+LOREBOOK (entries about this character or their past):
+${lore || '(none)'}
 
 INTRODUCING SCENE (the exchange that just happened):
 ${scene || '(none)'}
@@ -101,7 +149,7 @@ dislikes=a|b|c           # 1-3 already-known turn-offs (same rule)
 threshold=<text>         # the concrete open moment the relationship is moving toward, if the story shows one
 
 RULES:
-- Ground every value in the card or the scene. "Served the family for twenty years" justifies a deep bond; a first meeting does not — leave bond omitted (defaults to 0).
+- Ground every value in the card, the lorebook, or the scene. "Served the family for twenty years" justifies a deep bond; a first meeting does not — leave bond omitted (defaults to 0).
 - NEVER ground values in wishes. A hostile card stays hostile even if the scene was polite.
 - Omit lines you cannot ground. Silence is correct.`;
 
