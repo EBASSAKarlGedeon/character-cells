@@ -370,13 +370,12 @@ function registerSlashCommands() {
             SlashCommandNamedArgument.fromProps({ name: 'who', description: 'comma-separated character names/ids who witnessed it', typeList: [ARGUMENT_TYPE.STRING], isRequired: true }),
             SlashCommandNamedArgument.fromProps({ name: 'imp', description: 'importance 1-3', typeList: [ARGUMENT_TYPE.NUMBER] }),
         ],
-        callback: (_args, value) => {
-            const s = String(value ?? '');
-            const get = (re) => s.match(re)?.[1]?.trim() ?? '';
-            const what = get(/what\s*=\s*"([^"]*)"/) || get(/what\s*=\s*(\S+)/);
-            // who= up to the next key (=...) or end; tolerant of spaces after commas
-            const who = get(/who\s*=\s*([\s\S]*?)(?=\s+\w+\s*=|$)/);
-            const imp = Number(get(/imp\s*=\s*(\d)/)) || 1;
+        callback: (_args, _value) => {
+            // ST's parser extracts named args before the callback — use _args,
+            // NOT regex on the raw value (the raw value arrives empty).
+            const what = String(_args.what ?? '').trim();
+            const who = String(_args.who ?? '').trim();
+            const imp = Number(_args.imp) || 1;
             if (!what || !who) return 'Usage: /cc-event what="..." who=Name1,Name2 imp=2';
             const witnesses = who.split(',').map(w => {
                 const c = findCell(slugOf(w.trim())) || getState().cells.find(x => x.name.toLowerCase() === w.trim().toLowerCase());
@@ -386,6 +385,7 @@ function registerSlashCommands() {
             const turn = Number(getState().world.turn) || 0;
             const ev = addEvent(what, witnesses, turn, imp);
             saveChatDebounced(); updateInjection();
+            console.log(`${LOG_PREFIX} event added (${ev.id}): "${what}" → witnesses: ${ev.witnesses.join(', ')}`);
             return `Event added (${ev.id}): "${what}" witnessed by ${ev.witnesses.join(', ')}. Ledger size: ${getLedger().length}`;
         },
     }));
@@ -395,6 +395,7 @@ function registerSlashCommands() {
         helpString: 'List the shared event ledger (who witnessed what). Usage: /cc-ledger',
         callback: () => {
             const ledger = getLedger();
+            console.log(`${LOG_PREFIX} ledger queried: ${ledger.length} event(s)`);
             if (!ledger.length) return 'Ledger is empty.';
             const turn = Number(getState().world.turn) || 0;
             return ledger.map(e => `[${e.id}] ${e.what} — w: ${e.witnesses.join(', ')} (imp ${e.importance}, turn ${e.turn})`).join('\n') + `\nTotal: ${ledger.length} events, current turn ${turn}`;
@@ -419,5 +420,5 @@ jQuery(() => {
     initEventHandlers();
     registerSlashCommands();
     initBookkeeperEvents();
-    console.debug(`${LOG_PREFIX} initialized (bookkeeper ${isBookkeeperEnabled() ? 'ON' : 'OFF'})`);
+    console.log(`${LOG_PREFIX} initialized (bookkeeper ${isBookkeeperEnabled() ? 'ON' : 'OFF'})`);
 });
