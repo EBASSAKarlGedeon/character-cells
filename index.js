@@ -11,6 +11,7 @@ import { ARGUMENT_TYPE, SlashCommandArgument, SlashCommandNamedArgument } from '
 import { saveChatDebounced, eventSource, event_types } from '../../../../script.js';
 import { getState, addCell, findCell, setTier, removeCell, addMemory, stateStats } from './state.js';
 import { renderStateHtml } from './render.js';
+import { updateInjection, buildStateBlock, setInjectionEnabled } from './inject.js';
 
 const MODULE_NAME = 'character_cells';
 
@@ -230,10 +231,18 @@ function addMessageButton() {
 // ---------------------------------------------------------------- events
 
 function initEventHandlers() {
-    // When a chat loads/changes, nothing to do eagerly — state is read lazily from chat_metadata.
+    // Chat switch → recompute injection and redraw the panel.
     eventSource.on(event_types.CHAT_CHANGED, () => {
+        updateInjection();
         refreshPanelIfOpen();
     });
+    // State-affecting chat events → recompute injection only (redrawing the panel
+    // here would wipe in-progress hand edits mid-generation).
+    for (const ev of [event_types.MESSAGE_SENT, event_types.MESSAGE_RECEIVED, event_types.MESSAGE_DELETED, event_types.MESSAGE_SWIPED]) {
+        eventSource.on(ev, updateInjection);
+    }
+    // Re-inject before every generation so the block always reflects the current state.
+    eventSource.makeLast(event_types.GENERATION_STARTED, updateInjection);
 }
 
 // ---------------------------------------------------------------- slash commands
@@ -307,11 +316,24 @@ function registerSlashCommands() {
     }));
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
-        name: 'cc-stats',
-        helpString: 'Show character-cells state statistics for this chat.',
-        callback: () => {
-            const s = stateStats();
-            return `cells=${s.cells} memories=${s.memories} notes=${s.notes} size=${(s.jsonBytes / 1024).toFixed(1)}KB`;
+        name: 'cc-inject',
+        helpString: 'Preview the exact internal-states block that gets injected into the prompt. Usage: /cc-inject (shows it) | /cc-inject off (disables) | /cc-inject on (re-enables)',
+        positionalArgumentList: [SlashCommandArgument.fromProps({
+            description: 'on / off / (empty = show the block)', typeList: [ARGUMENT_TYPE.STRING],
+        })],
+        callback: (_args, value) => {
+            const arg = String(value ?? '').trim().toLowerCase();
+            if (arg === 'off') {
+                setInjectionEnabled(false);
+                return 'Character Cells injection disabled.';
+            }
+            if (arg === 'on') {
+                setInjectionEnabled(true);
+                return 'Character Cells injection enabled.';
+            }
+            const block = buildStateBlock(); // preview regardless of the on/off switch
+            if (!block) return 'No cell state in this chat yet — nothing would be injected.';
+            return block;
         },
     }));
 }
@@ -319,6 +341,9 @@ function registerSlashCommands() {
 function slugOf(name) {
     return String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
+
+/** Master switch for the injection (toggled via /cc-inject on|off). */
+let injectionEnabled = true;
 
 function uid() {
     return 'x' + Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36);

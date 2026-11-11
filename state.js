@@ -89,6 +89,11 @@ export function saveStateRef() {
     return STATE_KEY;
 }
 
+/** True if this chat already has cell state. Does NOT lazily create it (unlike getState). */
+export function hasState() {
+    return !!chat_metadata[STATE_KEY];
+}
+
 export function findCell(id) {
     return getState().cells.find(c => c.id === id) || null;
 }
