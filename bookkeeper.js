@@ -63,6 +63,9 @@ export function buildStateSummary() {
         out.chekhov = world.chekhov.map(c => ({ id: c.id, text: c.text, status: c.status || 'active' }));
     }
     if ((world.quests || []).length) out.quests = world.quests;
+    if ((world.notes || []).length) {
+        out.notes = world.notes.map(n => ({ id: n.id, type: n.type, text: n.text }));
+    }
     return JSON.stringify(out);
 }
 
@@ -78,14 +81,18 @@ ${sceneText}
 OUTPUT GRAMMAR — one command per line, nothing else:
 memory_add(what="...", who=<cellId>,<cellId>,... , imp=<1-3>)   # an event worth remembering; who = every character present who saw it (use cell ids from CURRENT STATE)
 witness(<eventId>, <cellId>)                                    # an existing event (from recent_events) that this character also witnessed now
-bond(<cellId>, user|sparks|grudge, <+1|-1|+2|-2>)               # relationship shift the scene shows
+bond(<cellId>, sparks|grudge, <+1|-1|+2|-2>)                    # relationship shift the scene shows
+bond(<cellId>, user, <-1|-2>)                                   # direct BOND DROPS ONLY (insult −1, betrayal/cruelty −2)
 agenda_step(<cellId>)                                           # this NPC advanced one step toward their agenda goal
-agenda_set(<cellId>, goal="...", location="...", max=<n>)       # set/change an NPC's agenda
+agenda_set(<cellId>, goal="...", location="...", max=<n>)       # set/change an NPC's agenda (1-3 mundane steps by default)
 status(<cellId>, "...")                                         # body/condition change (injured, drunk, wet, ...)
 presence(<cellId>, on|off)                                      # character entered or left the scene
 appear(<cellId>, spoke|acted|present)                           # this character took part in THIS scene: spoke = had dialogue, acted = did something on stage, present = visible but passive. One line per participating character.
-chekhov(<chekhovId>, active|locked|fired)                       # plant state change
-turn()                                                          # call once if meaningful time passed
+inv(<cellId>, +item|-item)                                      # item gained or lost (weapons, tools, keys, consumables)
+title(<cellId>, +name|-name)                                    # story title/skill earned or lost (e.g. "Charmer", "Slayer")
+thought(<cellId>, "...")                                        # 1-2 lines of raw, impulsive inner thought matching this NPC's persona (max 3 NPCs per turn)
+plant(text="...", weight=<1-3>, secret=<true|false>)            # the story planted a promise/setup/secret/foreshadow worth paying off later
+chekhov(<chekhovId>, active|locked|fired)                       # plant state change — fired ONLY when the scene actually resolved the planted element
 
 RULES:
 - Only what the scene text actually shows. No speculation.
@@ -93,6 +100,10 @@ RULES:
 - who lists for memory_add: every character who witnessed the event, comma-separated. Never widen who on an event that already exists — use witness() instead.
 - appear: emit for EVERY character who took part, exactly once each. The user counts too — use their cell id.
 - imp: 3 = plot-critical, 2 = notable, 1 = minor color.
+- BOND never rises directly: positive relationship shifts are Sparks (affection); only real insults/betrayals lower BOND directly. Sparks/Grudge are judged from the acting character's own knowledge and perspective — misreadings are allowed.
+- Do NOT emit task commands — the dice are rolled before the scene is written; outcomes you read are already decided.
+- thought: never mind-read the user, never interpret the user's meaning as fact — interpretations belong to the NPC and may be wrong.
+- plant: only genuine unresolved narrative debt (promises, scheduled events, secrets, setups). 1-2 per turn max; most turns none.
 - No explanations, no blank commentary. Commands only.`;
 }
 
@@ -131,6 +142,10 @@ async function runBookkeeper() {
         }
         // Tier auto-detection: the appear() roles are this scene's participation record.
         if (Object.keys(sceneRoles).length) {
+            // The scene's participants ARE the present set — keep it fresh so the
+            // tick engine's off-screen detection is always grounded in the scene.
+            const s = getState();
+            s.present = Object.keys(sceneRoles);
             logScene(sceneRoles);
             applied.push(...applyAutoTier());
         }

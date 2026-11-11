@@ -19,7 +19,7 @@ export function resolveCell(token) {
 
 /** Parse one command line into { op, raw } or null. */
 export function parseCommand(line) {
-    const m = line.match(/^\s*(memory_add|witness|bond|agenda_step|agenda_set|status|presence|appear|chekhov|turn)\s*\((.*)\)\s*;?\s*$/i);
+    const m = line.match(/^\s*(memory_add|witness|bond|agenda_step|agenda_set|status|presence|appear|chekhov|turn|task|note_add|note_del|inv|title|thought|plant|nowsim)\s*\((.*)\)\s*;?\s*$/i);
     if (!m) return null;
     return { op: m[1].toLowerCase(), raw: m[2] };
 }
@@ -85,6 +85,11 @@ export function applyCommand(cmd, currentTurn, sceneRoles) {
             const field = val(parts[1]).toLowerCase();
             const delta = intOf(parts[2]);
             if (!cell || !['user', 'sparks', 'grudge'].includes(field) || !delta) return 'skip: bad bond';
+            // FF5 rule: BOND never rises directly — positive user-bond becomes Sparks.
+            if (field === 'user' && delta > 0) {
+                cell.bonds.sparks = Math.min(15, (Number(cell.bonds.sparks) || 0) + delta);
+                return `bond: ${cell.name}.user +${delta} → redirected to SPARKS (FF5: BOND rises only via sparks)`;
+            }
             cell.bonds[field] = Math.max(-10, Math.min(20, (Number(cell.bonds[field]) || 0) + delta));
             return `bond: ${cell.name}.${field} ${delta > 0 ? '+' : ''}${delta}`;
         }
@@ -142,6 +147,100 @@ export function applyCommand(cmd, currentTurn, sceneRoles) {
             getState().world.turn = (Number(getState().world.turn) || 0) + 1;
             return 'turn +1';
         }
+        case 'task': {
+            // The bookkeeper only DETECTS the skilled action; the tick engine
+            // resolves it (locks DC, rolls the real dice) before the next scene.
+            const cell = resolveCell(parts[0]);
+            if (!cell) return 'skip: unknown actor';
+            const action = val(kv.action ?? parts.slice(1).join(','));
+            const difficulty = val(kv.difficulty || parts[parts.length - 1]).toLowerCase();
+            if (!action) return 'skip: no action';
+            if (!['easy', 'mod', 'hard', 'impossible'].includes(difficulty)) {
+                // tolerate a bare DC number too
+                const n = parseInt(difficulty, 10);
+                if (n >= 1 && n <= 20) {
+                    getState().world.task = { actor: cell.id, action, dc: n, difficulty: 'mod' };
+                    return `task: ${cell.name} "${action.slice(0, 40)}" DC ${n} (queued)`;
+                }
+                return 'skip: bad difficulty (easy|mod|hard|impossible)';
+            }
+            getState().world.task = { actor: cell.id, action, difficulty };
+            return `task: ${cell.name} "${action.slice(0, 40)}" (${difficulty}, queued)`;
+        }
+        case 'note_add': {
+            const type = val(kv.type ?? parts[0]).toUpperCase();
+            const text = val(kv.text ?? parts.slice(1).join(','));
+            if (!['R', 'T', 'D'].includes(type) || !text) return 'skip: bad note';
+            const notes = getState().world.notes;
+            notes.push({ id: uid(), type, text });
+            if (notes.length > 20) notes.shift(); // FF5: max 20, prune oldest
+            return `note: [${type}] ${text.slice(0, 40)}`;
+        }
+        case 'note_del': {
+            const id = val(parts[0]);
+            const notes = getState().world.notes;
+            const i = notes.findIndex(n => n.id === id);
+            if (i < 0) return 'skip: unknown note';
+            notes.splice(i, 1);
+            return `note deleted: ${id}`;
+        }
+        case 'inv': {
+            const cell = resolveCell(parts[0]);
+            const item = val(kv.item ?? parts.slice(1).join(','));
+            if (!cell || !item) return 'skip: bad inv';
+            cell.inventory = cell.inventory || [];
+            if (item.startsWith('-')) {
+                const drop = item.slice(1).trim().toLowerCase();
+                cell.inventory = cell.inventory.filter(i => i.toLowerCase() !== drop);
+                return `inv: ${cell.name} −${drop}`;
+            }
+            cell.inventory.push(item);
+            return `inv: ${cell.name} +${item}`;
+        }
+        case 'title': {
+            const cell = resolveCell(parts[0]);
+            const name = val(kv.title ?? parts.slice(1).join(','));
+            if (!cell || !name) return 'skip: bad title';
+            cell.titles = cell.titles || [];
+            if (name.startsWith('-')) {
+                const drop = name.slice(1).trim().toLowerCase();
+                cell.titles = cell.titles.filter(t => t.toLowerCase() !== drop);
+                return `title: ${cell.name} −${drop}`;
+            }
+            cell.titles.push(name);
+            return `title: ${cell.name} +${name}`;
+        }
+        case 'thought': {
+            const cell = resolveCell(parts[0]);
+            const text = val(kv.text ?? parts.slice(1).join(','));
+            if (!cell || !text) return 'skip: bad thought';
+            cell.thoughts = text;
+            return `thought: ${cell.name}`;
+        }
+        case 'plant': {
+            // Load a NEW Chekhov bullet (the fire decision stays with the engine).
+            const text = val(kv.text ?? parts[0] ?? parts.join(','));
+            if (!text) return 'skip: no plant';
+            const bullets = getState().world.chekhov;
+            if (bullets.some(b => b.text === text)) return 'dup';
+            if (bullets.filter(b => (b.status || 'active') === 'active').length >= 20) return 'skip: chekhov at capacity';
+            bullets.push({
+                id: uid(), text,
+                status: 'active',
+                weight: Math.max(1, Math.min(3, intOf(kv.weight) || 1)),
+                age: 0, depends: val(kv.depends || ''), secret: val(kv.secret || '') === 'true',
+            });
+            return `plant: "${text.slice(0, 40)}" (W${intOf(kv.weight) || 1})`;
+        }
+        case 'nowsim': {
+            // Referee flag: intimate NSFW exchange — World Sim pauses this turn.
+            getState().world.worldsimSkip = 'next';
+            return 'nowsim: world sim paused this turn';
+        }
     }
     return 'skip: unknown op';
+}
+
+function uid() {
+    return 'x' + Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36);
 }

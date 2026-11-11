@@ -116,8 +116,24 @@ function pushWorldSections(L, world, opts = {}) {
     }
 
     const roll = world.roll || {};
-    if (roll.task) {
-        L.push(`DND TASK SIM: Task: ${orDash(roll.task)} | DC: ${orDash(roll.dc)} | User roll: ${orDash(roll.user)} | NPC roll: ${orDash(roll.npc)} | Delta: ${orDash(roll.delta)} | Outcome: ${orDash(roll.outcome)}`);
+    if (roll.task && Number(roll.turn) === Number(world.turn)) {
+        L.push(`DND TASK SIM: Task: ${orDash(roll.task)} | DC: ${orDash(roll.dc)} | Roll: ${orDash(roll.user)}/${orDash(roll.npc)} | Delta: ${orDash(roll.delta)} | Outcome: ${orDash(roll.outcome)} | (Apply this outcome in the scene; never mention dice, DCs or modifiers in prose.)`);
+    }
+
+    const ws = world.worldsim;
+    // Perspective mode: a POV character can perceive ambient scene texture, but
+    // never off-screen shifts (StandardTable categories) — those don't exist for them.
+    const ambient = !opts.perspective || ws.table !== 'standard';
+    if (ws && Number(ws.turn) === Number(world.turn) && ambient) {
+        L.push(`WORLD SIM: This turn's roll: ${ws.event} — ${ws.desc} (improvise the specifics naturally; never mention the roll)`);
+    }
+
+    // Chekhov bullets that FIRED this turn: the narrator must weave them in now.
+    // Secrets stay hidden from a perspective that doesn't hold them.
+    const fired = (world.chekhovFired || []).filter(f => !opts.perspective || !f.secret);
+    if (fired.length) {
+        L.push('CHEKHOV FIRES (weave these into THIS scene naturally — do not mention the mechanic):');
+        for (const f of fired) L.push(`- ${f.text}`);
     }
 
     const combat = world.combat || {};

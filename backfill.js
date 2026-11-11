@@ -210,9 +210,12 @@ ${sceneText}
 OUTPUT GRAMMAR — one command per line, nothing else:
 memory_add(what="...", who=<cellId>,<cellId>,... , imp=<1-3>)   # an event worth remembering; who = every character present who saw it
 witness(<eventId>, <cellId>)                                    # an existing event (from recent_events) that this character also witnessed
-bond(<cellId>, user|sparks|grudge, <+1|-1|+2|-2>)               # relationship shift the scene shows
+bond(<cellId>, sparks|grudge, <+1|-1|+2|-2>)                    # relationship shift the scene shows (direct BOND drops: bond(<cellId>, user, -1|-2))
 agenda_step(<cellId>) / agenda_set(<cellId>, goal="...", location="...", max=<n>)
 status(<cellId>, "...") / presence(<cellId>, on|off) / appear(<cellId>, spoke|acted|present)
+inv(<cellId>, +item|-item) / title(<cellId>, +name|-name)
+plant(text="...", weight=<1-3>, secret=<true|false>)            # a promise/setup/secret the story planted in this scene
+thought(<cellId>, "...") / note_add(type=R|T|D, text="...")
 chekhov(<chekhovId>, active|locked|fired) / turn()
 
 RULES:
@@ -220,5 +223,6 @@ RULES:
 - Cell ids MUST come from CURRENT STATE. Never invent ids.
 - appear: emit for EVERY character who took part, exactly once each. USER is a participant — use their cell id from CURRENT STATE.
 - imp: 3 = plot-critical, 2 = notable, 1 = minor color.
+- BOND never rises directly: positive shifts go to Sparks; only insults/betrayals lower BOND directly.
 - This is an EARLY scene: characters who act here but have no cell in CURRENT STATE were not tracked yet. Skip commands for them; later batches will cover them.`;
 }

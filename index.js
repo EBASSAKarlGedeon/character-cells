@@ -21,6 +21,7 @@ import { getSettings, persistSettings } from './settings.js';
 import { buildPerspectiveBlock, previewBlock } from './inject.js';
 import { cleanCopyChat, backfillLedger, cancelBackfill, isBackfillRunning } from './backfill.js';
 import { rebuildAllDigests } from './digest.js';
+import { runTick, rerollWorldSim } from './tick.js';
 import { LOG_PREFIX } from './config.js';
 
 const MODULE_NAME = 'character_cells';
@@ -290,6 +291,19 @@ function initEventHandlers() {
     for (const ev of [event_types.MESSAGE_SENT, event_types.MESSAGE_RECEIVED, event_types.MESSAGE_DELETED, event_types.MESSAGE_SWIPED]) {
         eventSource.on(ev, updateInjection);
     }
+    // Pre-generation tick (FF5 mechanics port): referee call for the dice, agenda
+    // ticking, Chekhov aging + firing, bond cycles, World Sim roll. Hooked on
+    // GENERATION_AFTER_COMMANDS because Generate() AWAITS it before assembling
+    // the prompt — so the dice land in the injected block BEFORE the narrator
+    // writes the scene (that is the entire point: dice decide, prose follows).
+    eventSource.makeLast(event_types.GENERATION_AFTER_COMMANDS, (type, options, dryRun) => {
+        // Quiet prompts (summaries etc.) and dry runs are not scenes — no tick.
+        if (dryRun || options?.quiet_prompt) return;
+        (async () => {
+            try { await runTick(); } catch (err) { console.warn(`${LOG_PREFIX} tick failed:`, err); }
+            updateInjection();
+        })();
+    });
     // Re-inject before every generation so the block always reflects the current state.
     eventSource.makeLast(event_types.GENERATION_STARTED, updateInjection);
 }
@@ -550,6 +564,29 @@ function registerSlashCommands() {
             await backfillLedger(msg => console.log(`${LOG_PREFIX} ${msg}`));
             updateInjection();
             return 'Backfill finished (or was cancelled — see the toast).';
+        },
+    }));
+
+    SlashCommandParser.addCommandObject(SlashCommand.fromProps({
+        name: 'cc-worldsim',
+        helpString: 'World Sim: each turn the tick engine rolls a d20 and picks an ambient event category (DuoTable with ≤2 named NPCs or none off-screen, StandardTable otherwise). Usage: /cc-worldsim on | off | now | (empty = status)',
+        positionalArgumentList: [SlashCommandArgument.fromProps({
+            description: 'on / off / now / (empty = status)', typeList: [ARGUMENT_TYPE.STRING],
+        })],
+        callback: (_args, value) => {
+            const arg = String(value ?? '').trim().toLowerCase();
+            const settings = getSettings();
+            if (arg === 'on') { settings.worldSimEnabled = true; persistSettings(); return 'World Sim ENABLED.'; }
+            if (arg === 'off') { settings.worldSimEnabled = false; return 'World Sim DISABLED.'; }
+            if (arg === 'now') {
+                const line = rerollWorldSim();
+                saveChatDebounced(); updateInjection();
+                return `World Sim rerolled: ${line}`;
+            }
+            const s = getState();
+            const ws = s.world.worldsim;
+            return `World Sim is ${settings.worldSimEnabled ? 'ON' : 'OFF'}.` +
+                (ws ? ` Last roll (turn ${ws.turn}): d20=${ws.roll} → ${ws.event} (${ws.desc})` : ' No roll yet.');
         },
     }));
 

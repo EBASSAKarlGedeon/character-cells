@@ -13,6 +13,8 @@ const settings = {
     bookkeeperProfileId: '', // Connection Manager profile for ALL cheap calls ('' = active connection)
     autoTierEnabled: true,
     mainCharacterMode: false, // perspective rebuild: block built from ONE character's knowledge
+    autoChekhov: true,        // tick engine fires Chekhov bullets by d20 threshold
+    worldSimEnabled: true,    // tick engine rolls the World Sim table each turn
 };
 
 let _extension_settings = null;
@@ -27,6 +29,8 @@ export function initSettings(extension_settings) {
         if (typeof stored.bookkeeperProfileId === 'string') settings.bookkeeperProfileId = stored.bookkeeperProfileId;
         if (typeof stored.autoTierEnabled === 'boolean') settings.autoTierEnabled = stored.autoTierEnabled;
         if (typeof stored.mainCharacterMode === 'boolean') settings.mainCharacterMode = stored.mainCharacterMode;
+        if (typeof stored.autoChekhov === 'boolean') settings.autoChekhov = stored.autoChekhov;
+        if (typeof stored.worldSimEnabled === 'boolean') settings.worldSimEnabled = stored.worldSimEnabled;
     }
 }
 
