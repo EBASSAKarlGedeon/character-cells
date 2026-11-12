@@ -24,7 +24,7 @@ export function resolveCell(token) {
 
 /** Parse one command line into { op, raw } or null. */
 export function parseCommand(line) {
-    const m = line.match(/^\s*(memory_add|witness|bond|agenda_step|agenda_set|status|presence|appear|chekhov|turn|task|note_add|note_del|inv|title|thought|plant|nowsim|char_add|faction_add|quest_add|trust|rel)\s*\((.*)\)\s*;?\s*$/i);
+    const m = line.match(/^\s*(memory_add|witness|bond|agenda_step|agenda_set|status|presence|appear|chekhov|turn|task|note_add|note_del|inv|title|thought|plant|nowsim|char_add|faction_add|quest_add|trust|rel|env|physics)\s*\((.*)\)\s*;?\s*$/i);
     if (!m) return null;
     return { op: m[1].toLowerCase(), raw: m[2] };
 }
@@ -244,6 +244,15 @@ export function applyCommand(cmd, currentTurn, sceneRoles, opts = {}) {
             // Referee flag: intimate NSFW exchange — World Sim pauses this turn.
             getState().world.worldsimSkip = 'next';
             return 'nowsim: world sim paused this turn';
+        }
+        case 'env':
+        case 'physics': {
+            // FF5 PHYSICS, ENGINE & WORLD drawer: env = hazards/magic/weather,
+            // physics = spatial positioning, distances, line-of-sight.
+            const text = val(kv.text ?? parts.join(','));
+            if (!text) return `skip: no ${cmd.op} text`;
+            getState().world[cmd.op] = text;
+            return `${cmd.op}: ${text.slice(0, 40)}`;
         }
         case 'char_add': {
             // Auto character creation: fuzzy-match FIRST (name variants merge
