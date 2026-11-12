@@ -106,8 +106,9 @@ export function findCard(name) {
 }
 
 /** The card's lore-bearing fields, concatenated and size-capped. */
-function cardText(card) {
-    return cardBody(card).split('\n').map(s => s.trim()).filter(Boolean).join('\n').slice(0, 4000);
+// No size cap (DECIDED 2026-11-12): a bad call costs a rewind + fix, far more than the tokens.
+export function cardText(card) {
+    return cardBody(card).split('\n').map(s => s.trim()).filter(Boolean).join('\n');
 }
 
 /**
@@ -117,13 +118,15 @@ function cardText(card) {
  * CHAT-SCOPED book (chat_metadata.world_info — ST's chat-bound lorebook), then
  * the active GLOBAL books. Chat-scoped and global books are shared by every
  * character in the chat, so only entries whose keys or content mention the
- * character's name (as a WHOLE WORD) are included from them. Entries are
- * capped so the cheap call stays cheap. Exported for testing.
+ * character's name (as a WHOLE WORD) are included from them — unless
+ * `unfiltered` is set (the bookkeeper wants every entry). No size caps.
+ * Exported for testing.
  * @param {object|null} card the matched character card (may be null)
  * @param {string} name the cell's name
  * @param {object} [chatMeta] chat_metadata (defaults to the live global; test seam)
+ * @param {boolean} [unfiltered] include every entry of the chat/global books
  */
-export async function collectLore(card, name, chatMeta = chat_metadata) {
+export async function collectLore(card, name, chatMeta = chat_metadata, unfiltered = false) {
     const n = normName(name);
     const parts = [];
     const seen = new Set();
@@ -137,13 +140,13 @@ export async function collectLore(card, name, chatMeta = chat_metadata) {
             const content = String(e.content || '').trim();
             if (!content) continue;
             const keys = [...(e.key || []), ...(e.keysecondary || [])].map(k => String(k).trim()).filter(Boolean);
-            if (filtered && n) {
+            if (filtered && n && !unfiltered) {
                 const haystack = normName(keys.join(' ') + ' ' + content);
                 if (!phraseRe.test(haystack) && !wordRes.some(r => r.test(haystack))) continue;
             }
             if (seen.has(content)) continue;
             seen.add(content);
-            parts.push(`${keys.length ? `[${keys.join(', ')}] ` : ''}${content.slice(0, 500)}`);
+            parts.push(`${keys.length ? `[${keys.join(', ')}] ` : ''}${content}`);
         }
     };
     try { addBook(convertCharacterBook(card?.data?.character_book || card?.character_book), false); } catch { /* embedded book malformed — skip */ }
@@ -159,7 +162,42 @@ export async function collectLore(card, name, chatMeta = chat_metadata) {
     for (const g of (world_info?.globalSelect || [])) {
         try { addBook(await loadWorldInfo(g), true); } catch { /* global book missing — skip */ }
     }
-    return parts.join('\n').slice(0, 2500);
+    return parts.join('\n');
+}
+
+/**
+ * Everything the bookkeeper should know about the world, EVERY turn: the chat's
+ * own card, the card of every tracked NPC (when one exists in the library), and
+ * every active lorebook entry (embedded, linked, chat-scoped, global). Returns
+ * fenced DATA text, or '' when there is nothing. Never throws.
+ */
+export async function buildLoreContext() {
+    try {
+        const cards = [];
+        const seenAv = new Set();
+        const push = (c) => {
+            if (!c) return;
+            const key = c.avatar || c.name;
+            if (seenAv.has(key)) return;
+            seenAv.add(key);
+            cards.push(c);
+        };
+        const own = (typeof this_chid !== 'undefined' && characters?.[this_chid]) || null;
+        push(own);
+        for (const cell of (getState().cells || [])) {
+            if (cell.fixed) continue;
+            try { push(findCard(cell.name)); } catch { /* no card for this cell */ }
+        }
+        const cardBlocks = cards.map(c => `<character_card name="${String(c.name || '').replace(/["<>]/g, '')}">\n${fence(cardText(c))}\n</character_card>`);
+        const lore = fence(await collectLore(own || cards[0] || null, '', chat_metadata, true).catch(() => ''));
+        const out = [];
+        if (cardBlocks.length) out.push(cardBlocks.join('\n\n'));
+        if (lore) out.push(`<lorebook>\n${lore}\n</lorebook>`);
+        return out.join('\n\n');
+    } catch (err) {
+        console.warn(`${LOG_PREFIX} lore context failed (bookkeeper runs without it):`, err);
+        return '';
+    }
 }
 
 /** The exchange that just happened (same shape as the bookkeeper's scene text). */
@@ -217,7 +255,7 @@ async function runOrigin(cell, r, state, sceneOverride, token) {
     const cardBlock = fence(cardText(card));
     const lore = fence(await collectLore(card, cell.name).catch(() => ''));
     if (!sameChat(token)) return false; // B1: chat switched while loading lorebooks
-    const scene = fence(String(sceneOverride || buildSceneText()).slice(0, 4000));
+    const scene = fence(String(sceneOverride || buildSceneText()));
     const userName = state.cells.find(c => c.fixed)?.name || 'User';
     const safeName = String(cell.name).replace(/["<>]/g, '');
 
