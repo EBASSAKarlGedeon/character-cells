@@ -138,7 +138,6 @@ ${GRAMMAR}${createGrammar}
 RULES:
 - Ground every entry in the scene, or in established background from the CARD / LOREBOOK (see below). No speculation beyond those.
 - Cell ids MUST come from CURRENT STATE. Never invent ids.${createRulesText}
-- who lists for memory_add: every character who witnessed the event, comma-separated. Never widen who on an event that already exists — use witness() instead.
 - appear: emit for EVERY character who took part, exactly once each. The user counts too — use their cell id.
 - imp: 3 = plot-critical, 2 = notable, 1 = minor color.
 - BOND never rises directly: positive relationship shifts are Sparks (affection); only real insults/betrayals lower BOND directly. Sparks/Grudge are judged from the acting character's own knowledge and perspective — misreadings are allowed.

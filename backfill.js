@@ -322,8 +322,11 @@ function resetStateForReplay(s) {
 export function cancelBackfill() { backfillCancel = true; }
 export function isBackfillRunning() { return backfillRunning; }
 
-/** Ops allowed in SEEDED mode: ledger work only (final values were imported). */
-const SEEDED_OPS = new Set(['memory_add', 'witness', 'appear', 'turn']);
+/** Ops allowed in SEEDED mode: ledger work + character creation (final VALUES
+ * were imported, but the import can miss characters — a minor NPC who only
+ * appears early in history and never made it into the final states block.
+ * char_add creates their cell empty; values are never re-derived). */
+const SEEDED_OPS = new Set(['memory_add', 'witness', 'appear', 'turn', 'char_add']);
 
 /** Prompt for one backfill batch. State summary + batch scene + grammar. */
 function buildBackfillPrompt(sceneText, seeded = false, loreContext = '') {
@@ -331,12 +334,14 @@ function buildBackfillPrompt(sceneText, seeded = false, loreContext = '') {
         ? `OUTPUT GRAMMAR — one command per line, nothing else:
 memory_add(what="...", who=<cellId>,<cellId>,... , imp=<1-3>)   # an event worth remembering; who = every character present who saw it
 witness(<eventId>, <cellId>)                                    # an existing event (from recent_events) that this character also witnessed
+char_add(name="...", desc="...", present=onstage|offstage, location="...")  # ONLY for a character taking part who is MISSING from CURRENT STATE
 appear(<cellId>, spoke|acted|present)                           # who took part and how
 turn()                                                          # emit once when the scene ends a story turn
 
 RULES:
 - This chat's state was IMPORTED from the story's final values (bonds, inventory, agendas, bullets are already exact). Do NOT re-derive or re-apply them.
-- Your ONLY job is the event ledger: what happened, who saw it. Relationship moments belong in memory_add even though the numbers are already set.
+- Your job is the event ledger: what happened, who saw it. Relationship moments belong in memory_add even though the numbers are already set.
+- char_add: create ONLY a character the import missed — one who takes part in the scene but is absent from CURRENT STATE. Never recreate anyone already tracked, and never re-derive an existing cell's values.
 - Only what the scene text actually shows. No speculation.
 - Cell ids MUST come from CURRENT STATE. Never invent ids.
 - appear: emit for EVERY character who took part, exactly once each. USER is a participant — use their cell id from CURRENT STATE.
@@ -352,7 +357,6 @@ RULES:
 - This is a REPLAY of the chat's past: record only what is established AT or BEFORE this batch. Anything the card/lorebook places later in the story must NOT be recorded until a batch actually shows it.
 - Cell ids MUST come from CURRENT STATE. Never invent ids.
 ${createRules(AUTO_CREATE_CAP)}
-- who lists for memory_add: every character who witnessed the event, comma-separated. Never widen who on an event that already exists — use witness() instead.
 - appear: emit for EVERY character who took part, exactly once each. USER is a participant — use their cell id from CURRENT STATE.
 - imp: 3 = plot-critical, 2 = notable, 1 = minor color.
 - BOND never rises directly: positive relationship shifts are Sparks (affection); only real insults/betrayals lower BOND directly. Sparks/Grudge are judged from the acting character's own knowledge and perspective — misreadings are allowed.
