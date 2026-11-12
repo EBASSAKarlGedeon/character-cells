@@ -13,7 +13,9 @@
 // starting position.
 //
 // Guard rails (review fixes D1–D10):
-//  - the card is matched by exact normalized name/avatar only (participants win);
+//  - the card is matched from the CHAT'S OWN card first (exact name/avatar,
+//    then whole-word mention for title-named cards — "Mia" ≠ "Miami Vice"),
+//    falling back to library-wide exact name/avatar (participants win);
 //  - card / lore / scene text is fenced in tags and declared DATA, not instructions;
 //  - every bond/trust/route/condition value must carry a short verbatim evidence
 //    quote that CODE verifies as a substring of the card, lore or scene — keys
@@ -51,22 +53,50 @@ const escapeRe = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 /** Whole-word matcher over normalized text (letters/digits/spaces only). */
 const wordRe = (w) => new RegExp(`(?:^|\\s)${escapeRe(w)}(?:\\s|$)`);
 
+/** The card's lore-bearing text fields, concatenated (uncapped — caller caps). */
+function cardBody(card) {
+    if (!card) return '';
+    return [card.description, card.personality, card.scenario, card.first_mes, card.creator_notes]
+        .map(v => String(v || '')).join('\n');
+}
+
 /**
- * Find the character card matching a cell name: EXACT normalized name or avatar
- * only (no prefix guessing — "Mia" must never become "Miami Vice"). When several
- * cards match, the ones taking part in this chat win. The match is logged.
+ * Find the character card matching a cell name.
+ * Pass 1 — the CHAT'S OWN CARD (characters[this_chid]): the card already
+ * driving this conversation is the most likely home of an auto-created NPC.
+ * First by exact normalized name/avatar, then by WHOLE-WORD mention in its
+ * text — title-named cards ("ex's lil sister wants you") whose
+ * description/scenario/first_mes introduce the NPC by name ("Mako"). The
+ * whole-word check keeps "Mia" from matching inside "Miami"; the card is
+ * returned only when its text actually mentions the name.
+ * Pass 2 — library-wide EXACT normalized name or avatar only (no prefix
+ * guessing). When several cards match, the ones taking part in this chat win.
+ * The match (and how it was found) is logged.
  */
 export function findCard(name) {
     const n = normName(name);
     if (!n) return null;
     const list = Array.isArray(characters) ? characters : [];
     const av = (c) => normName(String(c.avatar || '').replace(/\.(png|jpe?g|webp|gif)$/i, ''));
+    // Pass 1: the chat's own card, exact first, then whole-word mention.
+    const cur = Array.isArray(characters) ? characters[this_chid] : null;
+    if (cur) {
+        if (normName(cur.name) === n || av(cur) === n) {
+            console.log(`${LOG_PREFIX} origin: "${name}" matched the chat card "${cur.name}" (${cur.avatar})`);
+            return cur;
+        }
+        const body = normName(cardBody(cur));
+        if (wordRe(n).test(body)) {
+            console.log(`${LOG_PREFIX} origin: "${name}" found inside chat card "${cur.name}" (${cur.avatar}) — title-named card`);
+            return cur;
+        }
+    }
+    // Pass 2: library-wide exact name/avatar match; participants win on ties.
     const hits = list.filter(c => normName(c.name) === n || av(c) === n);
     if (!hits.length) return null;
     let hit = hits[0];
     if (hits.length > 1) {
         const here = new Set();
-        const cur = Array.isArray(characters) ? characters[this_chid] : null;
         if (cur?.avatar) here.add(cur.avatar);
         for (const m of (Array.isArray(chat) ? chat : [])) if (m?.original_avatar) here.add(m.original_avatar);
         hit = hits.find(c => here.has(c.avatar)) || hits[0];
@@ -77,10 +107,7 @@ export function findCard(name) {
 
 /** The card's lore-bearing fields, concatenated and size-capped. */
 function cardText(card) {
-    if (!card) return '';
-    const parts = [card.description, card.personality, card.scenario, card.first_mes, card.creator_notes]
-        .map(v => String(v || '').trim()).filter(Boolean);
-    return parts.join('\n').slice(0, 4000);
+    return cardBody(card).split('\n').map(s => s.trim()).filter(Boolean).join('\n').slice(0, 4000);
 }
 
 /**
