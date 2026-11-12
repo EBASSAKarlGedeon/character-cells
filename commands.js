@@ -10,7 +10,8 @@ import { ensureRel, parseRoute, parseCondition, stageFor, TANGLED_STAGES } from 
 /** New tracked entries auto-creation may create per model call (junk flood guard). */
 export const AUTO_CREATE_CAP = 4;
 
-/** Resolve a name/id to a cell. Tries exact id, exact slug, then substring on name. */
+/** Resolve a name/id/alias to a cell. Tries exact id, exact slug, then
+ * substring on name, then aliases (old names kept by char_rename). */
 export function resolveCell(token) {
     const t = String(token || '').trim().toLowerCase();
     if (!t) return null;
@@ -19,12 +20,13 @@ export function resolveCell(token) {
         || cells.find(c => slug(c.name) === t)
         || cells.find(c => c.name.toLowerCase() === t)
         || cells.find(c => c.name.toLowerCase().includes(t) && t.length >= 4)
+        || cells.find(c => (c.aliases || []).some(a => slug(a) === t || a.toLowerCase() === t))
         || null;
 }
 
 /** Parse one command line into { op, raw } or null. */
 export function parseCommand(line) {
-    const m = line.match(/^\s*(memory_add|witness|bond|agenda_step|agenda_set|status|presence|appear|chekhov|turn|task|note_add|note_del|inv|title|thought|plant|nowsim|char_add|faction_add|quest_add|trust|rel|env|physics|combat|mods)\s*\((.*)\)\s*;?\s*$/i);
+    const m = line.match(/^\s*(memory_add|witness|char_rename|bond|agenda_step|agenda_set|status|presence|appear|chekhov|turn|task|note_add|note_del|inv|title|thought|plant|nowsim|char_add|faction_add|quest_add|trust|rel|env|physics|combat|mods)\s*\((.*)\)\s*;?\s*$/i);
     if (!m) return null;
     return { op: m[1].toLowerCase(), raw: m[2] };
 }
@@ -86,6 +88,29 @@ export function applyCommand(cmd, currentTurn, sceneRoles, opts = {}) {
             if (!cell) return 'skip: unknown cell';
             if (!ev.witnesses.includes(cell.id)) ev.witnesses.push(cell.id); // additive only
             return `witness: ${cell.name} ← ${ev.id}`;
+        }
+        case 'char_rename': {
+            // Identity continuity: the scene reveals a tracked character's real
+            // or formal name (the Goblin Chief introduces himself as Rigurd, a
+            // stray gets a name). Rename the cell IN PLACE — same id, so every
+            // past event, tier entry and witness list stays theirs — and keep
+            // the old name as an alias so later references still resolve.
+            const cell = resolveCell(parts[0]);
+            if (!cell) return 'skip: unknown cell';
+            if (cell.fixed) return `skip: ${cell.name} is the user cell`;
+            const newName = val(kv.name ?? parts[1]);
+            if (!newName) return 'skip: no new name';
+            if (slug(newName) === slug(cell.name)) return `char_rename: ${cell.name} unchanged`;
+            // Renaming onto another tracked character would silently merge two
+            // people — refuse; that case needs a real merge, not a rename.
+            const other = getState().cells.find(c => c.id !== cell.id
+                && (slug(c.name) === slug(newName) || (c.aliases || []).some(a => slug(a) === slug(newName))));
+            if (other) return `skip: ${newName} is already tracked as ${other.name} — merge by hand instead`;
+            cell.aliases = cell.aliases || [];
+            const oldName = cell.name;
+            if (!cell.aliases.some(a => slug(a) === slug(oldName))) cell.aliases.push(oldName);
+            cell.name = newName;
+            return `char_rename: ${oldName} → ${newName}`;
         }
         case 'bond': {
             const cell = resolveCell(parts[0]);

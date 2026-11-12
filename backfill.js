@@ -326,7 +326,7 @@ export function isBackfillRunning() { return backfillRunning; }
  * were imported, but the import can miss characters — a minor NPC who only
  * appears early in history and never made it into the final states block.
  * char_add creates their cell empty; values are never re-derived). */
-const SEEDED_OPS = new Set(['memory_add', 'witness', 'appear', 'turn', 'char_add']);
+const SEEDED_OPS = new Set(['memory_add', 'witness', 'appear', 'turn', 'char_add', 'char_rename']);
 
 /** Prompt for one backfill batch. State summary + batch scene + grammar. */
 function buildBackfillPrompt(sceneText, seeded = false, loreContext = '') {
@@ -334,6 +334,7 @@ function buildBackfillPrompt(sceneText, seeded = false, loreContext = '') {
         ? `OUTPUT GRAMMAR — one command per line, nothing else:
 memory_add(what="...", who=<cellId>,<cellId>,... , imp=<1-3>)   # an event worth remembering; who = every character present who saw it
 witness(<eventId>, <cellId>)                                    # an existing event (from recent_events) that this character also witnessed
+char_rename(<cellId|oldName>, name="NewName")                   # the scene revealed a tracked character's real/formal name — rename IN PLACE
 char_add(name="...", desc="...", present=onstage|offstage, location="...")  # ONLY for a character taking part who is MISSING from CURRENT STATE
 appear(<cellId>, spoke|acted|present)                           # who took part and how
 turn()                                                          # emit once when the scene ends a story turn
@@ -342,6 +343,7 @@ RULES:
 - This chat's state was IMPORTED from the story's final values (bonds, inventory, agendas, bullets are already exact). Do NOT re-derive or re-apply them.
 - Your job is the event ledger: what happened, who saw it. Relationship moments belong in memory_add even though the numbers are already set.
 - char_add: create ONLY a character the import missed — one who takes part in the scene but is absent from CURRENT STATE. Never recreate anyone already tracked, and never re-derive an existing cell's values.
+- IDENTITY RULE: one character is ONE cell forever — the scene reveals a tracked character's real name → char_rename the existing cell, never char_add a second one.
 - Only what the scene text actually shows. No speculation.
 - Cell ids MUST come from CURRENT STATE. Never invent ids.
 - appear: emit for EVERY character who took part, exactly once each. USER is a participant — use their cell id from CURRENT STATE.
