@@ -276,11 +276,19 @@ async function refereeCall() {
         if (chat[i].is_user && !chat[i].is_system) { userIdx = i; break; }
     }
     if (userIdx < 0) return;
-    const userText = String(chat[userIdx].mes || '').slice(0, 2000);
-    const prevAi = userIdx > 0 ? String(chat[userIdx - 1].mes || '').replace(/<internal_states[\s\S]*?(?:<\/internal_states>|(?=<!-- GFX_END -->)|$)/g, '').slice(0, 1500) : '';
+    // No input caps (DECIDED 2026-11-12): a truncated action reads as a different action.
+    const userText = String(chat[userIdx].mes || '');
+    const prevAi = userIdx > 0 ? String(chat[userIdx - 1].mes || '').replace(/<internal_states[\s\S]*?(?:<\/internal_states>|(?=<!-- GFX_END -->)|$)/g, '') : '';
     const s = getState();
-    const cells = s.cells.map(c => `${c.name} (id ${c.id}${c.fixed ? ', user' : `, bond ${c.bonds?.user ?? 0}`}, inv: ${(c.inventory || []).join('/') || 'none'}, titles: ${(c.titles || []).join('/') || 'none'}, mods: ${c.mods || 'none'})`).join('; ');
-    const prompt = `TRACKED STATE: ${cells}
+    const cells = s.cells.map(c => `${c.name} (id ${c.id}${c.fixed ? ', user' : `, bond ${c.bonds?.user ?? 0}`}, inv: ${(c.inventory || []).join('/') || 'none'}, titles: ${(c.titles || []).join('/') || 'none'}, mods: ${c.mods || 'none'}, wounds: ${c.status || 'healthy'})`).join('; ');
+    const combat = s.world.combat || {};
+    const combatLine = combat.mode && combat.mode !== 'N/A'
+        ? `ACTIVE FIGHT — Mode: ${combat.mode} | Engagement: ${combat.engagement || 'N/A'} | Wounds: ${combat.wounds || 'None'} | Last exchange: ${combat.exchange || 'N/A'}`
+        : 'No fight active (Mode N/A).';
+    const prompt = `TRACKED STATE:
+${cells}
+
+COMBAT STATE: ${combatLine}
 
 PREVIOUS EXCHANGE (context, AI side):
 ${prevAi || '(none)'}
@@ -289,11 +297,14 @@ USER'S NEW MESSAGE (the action being attempted now):
 ${userText}
 
 COMMANDS (one per line, or nothing):
-task(<actorId>, action="...", easy|mod|hard|impossible)   # a skilled action WITH a real failure condition is being attempted. Actor = the user's cell id, or an NPC they directly challenge/dare into an attempt. Trivial acts auto-pass. Pure conversation, expression, movement = NO task. Difficulty by the actor's proficiency.
+task(<actorId>, action="...", easy|mod|hard|impossible)   # a skilled action WITH a real failure condition is being attempted. Actor = the user's cell id, or an NPC they directly challenge/dare into an attempt. Trivial acts auto-pass. Pure conversation, expression, movement = NO task. Difficulty by the actor's proficiency — wounds and mods count.
 nowsim()                                                  # this exchange is/becomes an intimate NSFW scene — pause the World Sim roll this turn
+combat(mode="...", engagement="...", wounds="...", exchange="...")  # a FIGHT STARTS with this message (a strike, a hostile move, a drawn weapon) → emit combat() FIRST (mode: 1v1 Melee | 1v1 Magic/Ranged | 1 vs Team | Team vs Team | Team vs 1 (boss); engagement = who fights whom; exchange = the incoming beat), then the task() for the strike. A fight already ACTIVE (see COMBAT STATE) needs no new combat() line — its strikes just get task().
+combat(mode="off")                                        # the fight ended (surrender, escape, knockout, clear resolution)
 
 RULES:
 - Dice are law: if a task is real, its outcome must be undecided — that is why you are called BEFORE the scene is written.
+- IN AN ACTIVE FIGHT: any strike/spell/maneuver with a failure condition gets task() — that is what the dice are for. Taunts, suppression, flourishes = no roll.
 - No speculation about what happens next. Only what the user's message attempts.
 - No explanations. Command lines only, or nothing.`;
     try {
