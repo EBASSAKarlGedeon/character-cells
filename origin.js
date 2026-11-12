@@ -4,13 +4,13 @@
 // A fresh cell defaults to BOND 0 → Stranger — wrong for a maid who raised the
 // user or a sworn arch-enemy. When a NEW NPC cell is born, ONE cheap one-off
 // call reads that character's CARD (the only place the card is ever read),
-// their LOREBOOK entries (embedded book, character-linked book, and global
-// books filtered to entries that mention the character), plus the scene that
-// introduced them, and seeds the starting block: bonds.user, trust, route,
-// condition, and (when the lore establishes them) known likes/dislikes and an
-// open threshold. No soft caps (DECIDED 2026-11-11): a 5-year girlfriend
-// enters Intimate; the ladder discipline protects per-scene movement, not
-// starting position.
+// their LOREBOOK entries (embedded book, character-linked book, the CHAT-SCOPED
+// book, and global books filtered to entries that mention the character), plus
+// the scene that introduced them, and seeds the starting block: bonds.user,
+// trust, route, condition, and (when the lore establishes them) known
+// likes/dislikes and an open threshold. No soft caps (DECIDED 2026-11-11): a
+// 5-year girlfriend enters Intimate; the ladder discipline protects per-scene
+// movement, not starting position.
 //
 // Guard rails (review fixes D1–D10):
 //  - the card is matched from the CHAT'S OWN card first (exact name/avatar,
@@ -28,7 +28,7 @@
 // Never fatal, never blocking: runs after the reply, a failed/empty call leaves
 // the cell at Stranger, and the panel remains the hand-fix authority.
 
-import { chat, characters, this_chid } from '../../../../script.js';
+import { chat, characters, this_chid, chat_metadata } from '../../../../script.js';
 import { loadWorldInfo, convertCharacterBook, world_info } from '../../../world-info.js';
 import { getState, chatToken, sameChat } from './state.js';
 import { ensureRel, parseRoute, parseCondition, markRelStamps } from './rel.js';
@@ -113,27 +113,31 @@ function cardText(card) {
 /**
  * Lorebook entries to ground the origin call (DECIDED 2026-11-11: the card is
  * not enough — the maid's backstory often lives in the lorebook).
- * Sources, in order: the card's embedded book, the character-linked book,
- * then the active GLOBAL books — but globals are shared by every character,
- * so only entries whose keys or content mention the character's name (as a
- * WHOLE WORD) are included. Entries are capped so the cheap call stays cheap.
- * Exported for testing.
+ * Sources, in order: the card's embedded book, the character-linked book, the
+ * CHAT-SCOPED book (chat_metadata.world_info — ST's chat-bound lorebook), then
+ * the active GLOBAL books. Chat-scoped and global books are shared by every
+ * character in the chat, so only entries whose keys or content mention the
+ * character's name (as a WHOLE WORD) are included from them. Entries are
+ * capped so the cheap call stays cheap. Exported for testing.
+ * @param {object|null} card the matched character card (may be null)
+ * @param {string} name the cell's name
+ * @param {object} [chatMeta] chat_metadata (defaults to the live global; test seam)
  */
-export async function collectLore(card, name) {
+export async function collectLore(card, name, chatMeta = chat_metadata) {
     const n = normName(name);
     const parts = [];
     const seen = new Set();
     const phraseRe = n ? wordRe(n) : null;
     // lore usually says "Mia", not "Mia Valentine": any name word of 3+ letters counts too
     const wordRes = n.split(' ').filter(w => w.length >= 3).map(wordRe);
-    const addBook = (book, global) => {
+    const addBook = (book, filtered) => {
         if (!book || typeof book !== 'object') return;
         for (const e of Object.values(book.entries || {})) {
             if (!e || e.disable) continue;
             const content = String(e.content || '').trim();
             if (!content) continue;
             const keys = [...(e.key || []), ...(e.keysecondary || [])].map(k => String(k).trim()).filter(Boolean);
-            if (global && n) {
+            if (filtered && n) {
                 const haystack = normName(keys.join(' ') + ' ' + content);
                 if (!phraseRe.test(haystack) && !wordRes.some(r => r.test(haystack))) continue;
             }
@@ -144,6 +148,14 @@ export async function collectLore(card, name) {
     };
     try { addBook(convertCharacterBook(card?.data?.character_book || card?.character_book), false); } catch { /* embedded book malformed — skip */ }
     try { if (card?.data?.extensions?.world) addBook(await loadWorldInfo(card.data.extensions.world), false); } catch { /* linked book missing — skip */ }
+    // Chat-scoped book: skip when it's the card's linked book (already added
+    // above) or also among the active globals (added below) — like ST does.
+    try {
+        const chatBook = String(chatMeta?.world_info || '');
+        if (chatBook && chatBook !== card?.data?.extensions?.world && !(world_info?.globalSelect || []).includes(chatBook)) {
+            addBook(await loadWorldInfo(chatBook), true);
+        }
+    } catch { /* chat book missing — skip */ }
     for (const g of (world_info?.globalSelect || [])) {
         try { addBook(await loadWorldInfo(g), true); } catch { /* global book missing — skip */ }
     }

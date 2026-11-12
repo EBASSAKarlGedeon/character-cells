@@ -70,6 +70,39 @@ const check = (label, got, want) => {
     ok ? pass++ : fail++;
 };
 
+// --- collectLore chat-scoped book logic (replica) ---
+// Replica of the new source selection: which books get added, filtered or not.
+// loadWorldInfo is faked; card embed/linked book logic is out of scope here.
+const BOOKS = {
+    'Chat Book': { entries: { 0: { key: ['Mako'], content: 'Mako lives with her brother.' }, 1: { key: ['weather'], content: 'It always rains.' } } },
+    'Global Book': { entries: { 0: { key: ['Mako'], content: 'Mako is 18 and unemployed.' }, 1: { key: ['town'], content: 'The town by the sea.' } } },
+    'Card Linked': { entries: { 0: { key: [], content: 'Linked-book Mako lore.' } } },
+};
+const loadWorldInfo = async (name) => BOOKS[name] ?? null;
+const world_info = { globalSelect: ['Global Book'] };
+const convertCharacterBook = (b) => b;
+
+function sourcesToAdd(card, chatMeta) {
+    const list = [];
+    const chatBook = String(chatMeta?.world_info || '');
+    if (chatBook && chatBook !== card?.data?.extensions?.world && !(world_info?.globalSelect || []).includes(chatBook)) {
+        list.push({ name: chatBook, filtered: true });
+    }
+    for (const g of world_info.globalSelect) list.push({ name: g, filtered: true });
+    return list;
+}
+
+check('chat-scoped book included when set and not duplicate',
+    sourcesToAdd(card, { world_info: 'Chat Book' }), [{ name: 'Chat Book', filtered: true }, { name: 'Global Book', filtered: true }]);
+check('chat-scoped book skipped when also in globals',
+    sourcesToAdd(card, { world_info: 'Global Book' }), [{ name: 'Global Book', filtered: true }]);
+check('chat-scoped book skipped when it is the card\'s linked book',
+    sourcesToAdd({ data: { extensions: { world: 'Chat Book' } } }, { world_info: 'Chat Book' }), [{ name: 'Global Book', filtered: true }]);
+check('no chat-scoped book → unchanged behavior',
+    sourcesToAdd(card, {}), [{ name: 'Global Book', filtered: true }]);
+check('null chat metadata (test seam default path) → unchanged behavior',
+    sourcesToAdd(card, null), [{ name: 'Global Book', filtered: true }]);
+
 check('NPC name inside title-named card → chat card wins (pass 1)',
     (findCard('Mako', characters, this_chid) || {}).how, 'chat-card-contains');
 check('pass 1 returns the chat card itself',
