@@ -62,9 +62,20 @@ const intOf = (s) => { const n = parseInt(s, 10); return isNaN(n) ? 0 : n; };
 export function applyCommand(cmd, currentTurn, sceneRoles, opts = {}) {
     const parts = splitArgs(cmd.raw);
     const kv = {};
+    // Parts without '=' after a keyed part CONTINUE that key's list:
+    // "who=ashrith,veldoria-novaris, imp=2" splits into ["who=ashrith",
+    // "veldoria-novaris", " imp=2"] — the bare part belongs to who, not to
+    // nowhere (it used to be dropped, truncating every multi-witness list
+    // to its first name). Positional args before any key are unaffected.
+    let lastKey = null;
     for (const p of parts) {
         const eq = p.indexOf('=');
-        if (eq > 0) kv[p.slice(0, eq).trim().toLowerCase()] = p.slice(eq + 1).trim();
+        if (eq > 0) {
+            lastKey = p.slice(0, eq).trim().toLowerCase();
+            kv[lastKey] = p.slice(eq + 1).trim();
+        } else if (lastKey && p.trim()) {
+            kv[lastKey] = `${kv[lastKey]},${p.trim()}`;
+        }
     }
 
     switch (cmd.op) {
