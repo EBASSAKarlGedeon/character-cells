@@ -16,6 +16,7 @@ import { stageOf, markRelStamps } from './rel.js';
 import { logScene, applyAutoTier } from './tiers.js';
 import { seedOrigin } from './origin.js';
 import { initSettings, getSettings, persistSettings } from './settings.js';
+import { renderChatTable } from './chat-table.js';
 import { cheapCall } from './llm.js';
 import { LOG_PREFIX } from './config.js';
 
@@ -218,6 +219,7 @@ async function runBookkeeper(token) {
         if (applied.length) {
             console.log(`${LOG_PREFIX} bookkeeper applied (${applied.length} change(s)):\n  ` + applied.join('\n  '));
             updateInjection();
+            renderChatTable();
             saveChatDebounced();
         } else {
             console.log(`${LOG_PREFIX} bookkeeper ran: 0 changes this turn`);

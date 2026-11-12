@@ -11,6 +11,8 @@ const settings = {
     bookkeeperEnabled: false,
     bookkeeperDelayMs: 1500,
     bookkeeperProfileId: '', // Connection Manager profile for ALL cheap calls ('' = active connection)
+    profileMaxTokens: 32000, // max_tokens for Connection Manager profile calls (reasoning shares this budget)
+    chatTables: true, // draw the internal-states table under the newest AI message
     bookkeeperAutoCells: true, // bookkeeper may auto-create cells/factions/quests (char_add/faction_add/quest_add)
     autoTierEnabled: true,
     mainCharacterMode: false, // perspective rebuild: block built from ONE character's knowledge
@@ -28,6 +30,8 @@ export function initSettings(extension_settings) {
         if (typeof stored.bookkeeperEnabled === 'boolean') settings.bookkeeperEnabled = stored.bookkeeperEnabled;
         if (typeof stored.bookkeeperDelayMs === 'number') settings.bookkeeperDelayMs = stored.bookkeeperDelayMs;
         if (typeof stored.bookkeeperProfileId === 'string') settings.bookkeeperProfileId = stored.bookkeeperProfileId;
+        if (typeof stored.profileMaxTokens === 'number' && stored.profileMaxTokens >= 256) settings.profileMaxTokens = stored.profileMaxTokens;
+        if (typeof stored.chatTables === 'boolean') settings.chatTables = stored.chatTables;
         if (typeof stored.bookkeeperAutoCells === 'boolean') settings.bookkeeperAutoCells = stored.bookkeeperAutoCells;
         if (typeof stored.autoTierEnabled === 'boolean') settings.autoTierEnabled = stored.autoTierEnabled;
         if (typeof stored.mainCharacterMode === 'boolean') settings.mainCharacterMode = stored.mainCharacterMode;

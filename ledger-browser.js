@@ -77,8 +77,13 @@ function render() {
                 ? `<select id="cc_bk_profile"></select>`
                 : `<div class="cc-bk-profile-note">Connection Manager extension is not available — cheap calls use the active connection.</div>`}
           </div>
+          <div class="cc-bk-profile">
+            <label for="cc_set_maxtokens">Profile max tokens <span class="cc-bk-profile-note">(sent as max_tokens on every bookkeeper-profile call; reasoning models spend it on thinking before the answer — default 32000)</span></label>
+            <input id="cc_set_maxtokens" type="number" class="text_pole" min="256" max="200000" step="1000" value="${getSettings().profileMaxTokens}">
+          </div>
           <div class="cc-bk-toggles">
             <label class="cc-bk-toggle"><input type="checkbox" id="cc_set_bookkeeper" ${getSettings().bookkeeperEnabled ? 'checked' : ''}> Bookkeeper state tracking (auto-updates state after each reply)</label>
+            <label class="cc-bk-toggle"><input type="checkbox" id="cc_set_chattables" ${getSettings().chatTables !== false ? 'checked' : ''}> Show the internal-states table under the latest AI message (display only — never sent to the model)</label>
             <label class="cc-bk-toggle"><input type="checkbox" id="cc_set_autocells" ${getSettings().bookkeeperAutoCells !== false ? 'checked' : ''}> Auto-create characters, factions & quests (max ${AUTO_CREATE_CAP} per turn)</label>
           </div>
           <div class="cc-ledger-summary">
@@ -118,6 +123,17 @@ function bind() {
 
     $container.on('change', '#cc_set_bookkeeper', function () {
         setBookkeeperEnabled($(this).prop('checked'));
+    });
+    $container.on('change', '#cc_set_chattables', function () {
+        getSettings().chatTables = $(this).prop('checked');
+        persistSettings();
+        import('./chat-table.js').then(m => m.renderChatTable());
+    });
+    $container.on('change', '#cc_set_maxtokens', function () {
+        const v = Math.round(Number($(this).val()));
+        getSettings().profileMaxTokens = v >= 256 ? v : 32000;
+        $(this).val(getSettings().profileMaxTokens);
+        persistSettings();
     });
     $container.on('change', '#cc_set_autocells', function () {
         getSettings().bookkeeperAutoCells = $(this).prop('checked');

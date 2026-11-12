@@ -11,9 +11,6 @@ import { ConnectionManagerRequestService } from '../../shared.js';
 import { getSettings } from './settings.js';
 import { LOG_PREFIX } from './config.js';
 
-/** Token floor for profile calls (reasoning headroom). */
-const PROFILE_MIN_TOKENS = 4096;
-
 /** Is a Connection Manager profile selected for the cheap calls? */
 export function hasCheapProfile() {
     return !!getSettings().bookkeeperProfileId;
@@ -68,9 +65,10 @@ export async function cheapCall(systemPrompt, prompt, responseLength) {
                 ],
                 // B5: thinking models eat reasoning tokens from the same cap. Ask for LOW
                 // effort (ST's server maps reasoning_effort onto OpenRouter / Google /
-                // Claude / OpenAI-style sources; unsupported ones ignore it) and give the
-                // profile path a floor so a little reasoning can't starve the answer.
-                Math.max(responseLength, PROFILE_MIN_TOKENS),
+                // Claude / OpenAI-style sources; unsupported ones ignore it) and use the
+                // user-configurable profileMaxTokens (default 32k) for profile calls, so
+                // reasoning that can't be turned off never starves the answer.
+                Number(getSettings().profileMaxTokens) || 32000,
                 { includePreset: true, stream: false },
                 { reasoning_effort: 'low', include_reasoning: false },
             );

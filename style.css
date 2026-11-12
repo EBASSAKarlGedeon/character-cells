@@ -345,3 +345,12 @@
 #cc_dialog .cc-rel-row { margin-top: 4px; color: #cdd6f4; font-size: 0.92em; }
 #cc_dialog .cc-rel-hint { color: #6c7086; font-size: 0.85em; }
 #cc_dialog .cc-rel-keepsake-text { color: #94e2d5; font-style: italic; }
+
+/* Chat-rendered internal-states table (display only) */
+.cc-chat-table { margin: 8px 0 2px; font-size: 0.82em; border: 1px solid var(--SmartThemeBorderColor, #444); border-radius: 6px; padding: 4px 8px; background: rgba(127,127,127,0.07); }
+.cc-chat-table summary { cursor: pointer; opacity: 0.85; }
+.cc-chat-table table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+.cc-chat-table th, .cc-chat-table td { text-align: left; padding: 2px 6px; border-bottom: 1px solid rgba(127,127,127,0.25); vertical-align: top; }
+.cc-chat-table th { opacity: 0.7; font-weight: 600; }
+.cc-chat-table small { opacity: 0.6; }
+.cc-chat-table .cc-ct-lines { margin-top: 6px; opacity: 0.9; }

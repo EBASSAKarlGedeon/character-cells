@@ -16,6 +16,7 @@ import { seedOrigin } from './origin.js';
 import { renderStateHtml } from './render.js';
 import { digestStats } from './digest.js';
 import { setDigestInfo } from './render.js';
+import { initChatTable, renderChatTable } from './chat-table.js';
 import { initLedgerBrowser } from './ledger-browser.js';
 import { updateInjection, setInjectionEnabled } from './inject.js';
 import { initBookkeeper, initBookkeeperEvents, isBookkeeperEnabled, setBookkeeperEnabled } from './bookkeeper.js';
@@ -396,6 +397,7 @@ function initEventHandlers() {
         return (async () => {
             try { await runTick(type); } catch (err) { console.warn(`${LOG_PREFIX} tick failed:`, err); }
             await updateInjection();
+            renderChatTable();
         })();
     });
     // Re-inject before every generation so the block always reflects the current state.
@@ -721,5 +723,6 @@ jQuery(() => {
     registerSlashCommands();
     initBookkeeperEvents();
     initLedgerBrowser();
+    initChatTable();
     console.log(`${LOG_PREFIX} initialized (bookkeeper ${isBookkeeperEnabled() ? 'ON' : 'OFF'})`);
 });
