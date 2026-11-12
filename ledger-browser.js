@@ -60,6 +60,14 @@ function rowsHtml(shown, ledgerTotal, currentTurn) {
     }).join('');
 }
 
+/** True when one event passes the active filter bar (text / who / imp). */
+function matchFilters(e) {
+    if (filter.imp && e.importance !== Number(filter.imp)) return false;
+    if (filter.who && !(e.witnesses || []).includes(filter.who)) return false;
+    if (filter.text && !e.what.toLowerCase().includes(filter.text.toLowerCase())) return false;
+    return true;
+}
+
 function render() {
     if (!$container) return;
     const state = getState();
@@ -68,12 +76,7 @@ function render() {
 
     // -- filters
     const whoOptions = state.cells.map(c => `<option value="${c.id}" ${filter.who === c.id ? 'selected' : ''}>${c.name}${c.fixed ? ' (user)' : ''}</option>`).join('');
-    const shown = ledger.filter(e => {
-        if (filter.imp && e.importance !== Number(filter.imp)) return false;
-        if (filter.who && !(e.witnesses || []).includes(filter.who)) return false;
-        if (filter.text && !e.what.toLowerCase().includes(filter.text.toLowerCase())) return false;
-        return true;
-    });
+    const shown = ledger.filter(matchFilters);
 
     const rows = rowsHtml(shown, ledger.length, currentTurn);
 
@@ -106,6 +109,7 @@ function render() {
           </div>
           <div class="cc-ledger-filters">
             <button id="cc_ledger_clear_all" class="cc-ledger-del cc-ledger-clearall" title="Delete ALL ledger events (irreversible)">✖</button>
+            <button id="cc_ledger_clear_shown" class="cc-ledger-del cc-ledger-clearall" title="Delete only the events matching the current filters (irreversible)">✖ <small>shown</small></button>
             <input id="cc_ledger_filter_text" class="text_input" placeholder="Filter text…" value="${filter.text}">
             <select id="cc_ledger_filter_who" class="text_input"><option value="">all characters</option>${whoOptions}</select>
             <select id="cc_ledger_filter_imp" class="text_input">
@@ -196,29 +200,41 @@ function bind() {
         if (changed) { saveChatDebounced(); updateInjection(); }
     });
 
-    // Clear ALL events: two-click arm/confirm (same pattern as the panel's
-    // "Reset internal states") — first click arms for 5s, second click wipes.
-    let clearAllArmed = false;
-    $container.on('click', '#cc_ledger_clear_all', function () {
-        const $btn = $(this);
-        const ledger = getLedger();
-        const disarm = () => {
-            clearAllArmed = false;
-            $btn.text('✖').prop('title', 'Delete ALL ledger events (irreversible)').css('color', '');
-        };
-        if (!ledger.length) { toastr.info('Ledger is already empty.', 'Character Cells'); return; }
-        if (!clearAllArmed) {
-            clearAllArmed = true;
-            $btn.text('⚠').prop('title', `Really delete ALL ${ledger.length} event(s)? Click again`).css('color', 'var(--warning, #c0392b)');
+    // Clear buttons: ✖ = ALL events, ✖ shown = only the events matching the
+    // active filters. Both use two-click arm/confirm (same pattern as the
+    // panel's "Reset internal states") — first click arms for 5s, second wipes.
+    const clearArm = { all: false, shown: false };
+    function armClear($btn, key, count, idleHtml, idleTitle, emptyMsg, onConfirm) {
+        const disarm = () => { clearArm[key] = false; $btn.html(idleHtml).prop('title', idleTitle).css('color', ''); };
+        if (!count) { disarm(); toastr.info(emptyMsg, 'Character Cells'); return; }
+        if (!clearArm[key]) {
+            clearArm[key] = true;
+            $btn.text('⚠').prop('title', `Really delete ${count} event(s)? Click again`).css('color', 'var(--warning, #c0392b)');
             setTimeout(disarm, 5000);
             return;
         }
         disarm();
-        const n = ledger.length;
-        getState().ledger = [];
-        console.warn(`${LOG_PREFIX} ledger browser: CLEARED all ${n} event(s) (manual)`);
-        saveChatDebounced(); updateInjection(); updateList();
-        toastr.warning(`Ledger cleared — ${n} event(s) deleted.`, 'Character Cells');
+        onConfirm();
+    }
+    $container.on('click', '#cc_ledger_clear_all', function () {
+        const ledger = getLedger();
+        armClear($(this), 'all', ledger.length, '✖', 'Delete ALL ledger events (irreversible)', 'Ledger is already empty.', () => {
+            console.warn(`${LOG_PREFIX} ledger browser: CLEARED all ${ledger.length} event(s) (manual)`);
+            getState().ledger = [];
+            saveChatDebounced(); updateInjection(); updateList();
+            toastr.warning(`Ledger cleared — ${ledger.length} event(s) deleted.`, 'Character Cells');
+        });
+    });
+    $container.on('click', '#cc_ledger_clear_shown', function () {
+        const ledger = getLedger();
+        const ids = ledger.filter(matchFilters).map(e => e.id);
+        armClear($(this), 'shown', ids.length, '✖ <small>shown</small>', 'Delete only the events matching the current filters (irreversible)', 'No events match the current filters.', () => {
+            const idSet = new Set(ids);
+            console.warn(`${LOG_PREFIX} ledger browser: CLEARED ${ids.length} shown event(s) matching the filters (manual)`);
+            getState().ledger = getLedger().filter(e => !idSet.has(e.id));
+            saveChatDebounced(); updateInjection(); updateList();
+            toastr.warning(`${ids.length} shown event(s) deleted.`, 'Character Cells');
+        });
     });
 
     $container.on('click', '[data-ev-del]', function () {
@@ -264,12 +280,7 @@ function updateList() {
     const whoOptions = state.cells.map(c => `<option value="${c.id}" ${filter.who === c.id ? 'selected' : ''}>${c.name}${c.fixed ? ' (user)' : ''}</option>`).join('');
     $container.find('#cc_ledger_filter_who').html(`<option value="">all characters</option>${whoOptions}`);
 
-    const shown = ledger.filter(e => {
-        if (filter.imp && e.importance !== Number(filter.imp)) return false;
-        if (filter.who && !(e.witnesses || []).includes(filter.who)) return false;
-        if (filter.text && !e.what.toLowerCase().includes(filter.text.toLowerCase())) return false;
-        return true;
-    });
+    const shown = ledger.filter(matchFilters);
 
     $container.find('.cc-ledger-summary').html(`
             ${ledger.length} event(s) · turn ${currentTurn} · shown: ${shown.length}
