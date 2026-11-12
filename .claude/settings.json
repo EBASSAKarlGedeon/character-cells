@@ -1,0 +1,27 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash  ~/Documents/Coding/character-cells/tool_budget.sh",
+            "timeout": 10,
+            "statusMessage": "Checking tool budget"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash  ~/Documents/Coding/character-cells/tool_budget.sh",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

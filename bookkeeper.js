@@ -157,7 +157,10 @@ async function runBookkeeper() {
     if (!sceneText) return;
     busy = true;
     try {
-        const reply = await cheapCall(SYSTEM_PROMPT, buildBookkeeperPrompt(sceneText), 400);
+        // 2048, not 400: thinking models spend reasoning tokens out of the SAME
+        // max_tokens budget — at 400 the completion truncated mid-command and
+        // memory_add lines were silently dropped (llm.js note; cf. lorebook-forge).
+        const reply = await cheapCall(SYSTEM_PROMPT, buildBookkeeperPrompt(sceneText), 2048);
         const lines = String(reply || '').split('\n').map(l => l.trim()).filter(Boolean);
         const turn0 = Number(getState().world.turn) || 0;
         const sceneRoles = {};

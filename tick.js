@@ -291,7 +291,10 @@ RULES:
 - No speculation about what happens next. Only what the user's message attempts.
 - No explanations. Command lines only, or nothing.`;
     try {
-        const reply = await cheapCall(REFeree_SYSTEM, prompt, 150);
+        // 1024, not ~150: thinking models spend reasoning tokens out of the SAME
+        // max_tokens budget — 150 was fully consumed by reasoning, the answer came
+        // back empty and every referee call silently fell back (llm.js note).
+        const reply = await cheapCall(REFeree_SYSTEM, prompt, 1024);
         const lines = String(reply || '').split('\n').map(l => l.trim()).filter(Boolean);
         for (const line of lines) {
             const cmd = parseCommand(line);
