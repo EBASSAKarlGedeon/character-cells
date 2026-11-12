@@ -90,6 +90,19 @@ export function buildStateSummary() {
     if ((world.notes || []).length) {
         out.notes = world.notes.map(n => ({ id: n.id, type: n.type, text: n.text }));
     }
+    // DND TASK SIM: the outcome this scene had to honor. The bookkeeper must not
+    // re-roll or re-decide it — only record what the scene did with it (wounds,
+    // status, combat exchange…). Current-turn rolls only; older ones are history.
+    const roll = world.roll || {};
+    if (roll.task && Number(roll.turn) === Number(world.turn || 0)) {
+        out.roll = { task: roll.task, dc: roll.dc, user: roll.user, npc: roll.npc, delta: roll.delta, outcome: roll.outcome };
+    }
+    // Combat state: the bookkeeper maintains this drawer after the scene (the
+    // referee owns fight START before it).
+    const combat = world.combat || {};
+    if (combat.mode && combat.mode !== 'N/A') {
+        out.combat = { mode: combat.mode, engagement: combat.engagement, wounds: combat.wounds, exchange: combat.exchange };
+    }
     return JSON.stringify(out);
 }
 
@@ -124,6 +137,8 @@ RULES:
 - imp: 3 = plot-critical, 2 = notable, 1 = minor color.
 - BOND never rises directly: positive relationship shifts are Sparks (affection); only real insults/betrayals lower BOND directly. Sparks/Grudge are judged from the acting character's own knowledge and perspective — misreadings are allowed.
 - Do NOT emit task commands — the dice are rolled before the scene is written; outcomes you read are already decided.
+- DICE OUTCOME — CURRENT STATE may include a "roll" object (the DND TASK SIM result this scene had to honor: task, DC, both dice, delta, outcome band). The dice are LAW and already decided: the scene you just read was written with that outcome in mind. Record its consequences (status/wounds changes, inv lost or broken, combat exchange, rel shifts the win or loss earned) — never re-decide, re-roll or contradict it, and never emit task().
+- COMBAT STATE — CURRENT STATE may include an active "combat" object. Maintain it: the scene shows the fight continuing → update wounds/engagement/exchange; the fight ended → combat(mode="off").
 ${SHARED_RULES}`;
 }
 
