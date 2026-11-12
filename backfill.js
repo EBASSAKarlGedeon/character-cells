@@ -103,17 +103,20 @@ const SYSTEM_PROMPT = 'You are a state tracker for a roleplay session. You read 
 let backfillRunning = false;
 let backfillCancel = false;
 
-/** Consecutive non-system messages, batch size counted in messages. */
+/** Consecutive non-system messages, batch size counted in messages.
+ * Also reports how many hidden (is_system) messages it walked past, so the
+ * caller can detect a chat that is mostly hidden (e.g. Summaryception). */
 function batchSceneText(startIdx, batchSize) {
     const msgs = [];
     let i = startIdx;
+    let skipped = 0;
     while (i < chat.length && msgs.length < batchSize) {
         const m = chat[i];
-        if (m.is_system) { i++; continue; }
+        if (m.is_system) { i++; skipped++; continue; }
         msgs.push(`${m.is_user ? 'USER' : 'AI'}: ${String(m.mes || '').trim()}`);
         i++;
     }
-    return { text: msgs.join('\n\n'), endIdx: i };
+    return { text: msgs.join('\n\n'), endIdx: i, skipped };
 }
 
 /**
@@ -136,6 +139,17 @@ export async function backfillLedger(progress = null) {
     if (!Array.isArray(chat) || chat.length < 2) {
         toastr.warning('Chat has no history to backfill.', 'Character Cells');
         return;
+    }
+    // HIDDEN-MESSAGES GUARD (start): hidden (is_system) messages are skipped by
+    // the reader. A chat that is mostly hidden — e.g. Summaryception hides
+    // summarized turns — would "backfill" a sliver of the story and still report
+    // done. Warn BEFORE burning the run; a warning doesn't block.
+    const hiddenCount = chat.filter(m => m && m.is_system).length;
+    if (hiddenCount / chat.length > 0.25) {
+        toastr.warning(
+            `${hiddenCount} of ${chat.length} messages are hidden (is_system) — e.g. Summaryception-summarized turns? The backfill SKIPS hidden messages; unhide them first for a full replay.`,
+            'Character Cells', { timeOut: 15000 });
+        console.warn(`${LOG_PREFIX} backfill: ${hiddenCount}/${chat.length} messages are hidden (is_system) — they will be skipped`);
     }
 
     // SEEDED MODE (slice 8): the state was imported from a final internal-states
@@ -167,6 +181,8 @@ export async function backfillLedger(progress = null) {
     const startTime = Date.now();
     let totalCommands = 0;
     let batches = 0;
+    let totalSkipped = 0; // hidden (is_system) messages walked past by the reader
+    let coveredMsgs = 0;  // raw messages actually covered by non-retry batches
     state.backfill.running = true;
     // Turn accounting fix (all backfills): events stamp with a LOCAL virtual
     // turn counter incremented by turn() commands — historical turns instead
@@ -190,8 +206,10 @@ export async function backfillLedger(progress = null) {
             const isRetry = queue.length > 0;
             if (!isRetry && i >= chat.length) break;
             const start = isRetry ? queue.shift() : i;
-            const { text, endIdx } = batchSceneText(start, BATCH);
+            const { text, endIdx, skipped } = batchSceneText(start, BATCH);
+            totalSkipped += skipped;
             if (!text) { if (isRetry) { pendingFailed.delete(start); continue; } break; }
+            if (!isRetry) coveredMsgs += endIdx - start;
             batches++;
             const sceneRoles = {}; // C5: per batch — a stale role map would be logged again for every later batch
             let ok = false;
@@ -249,6 +267,20 @@ export async function backfillLedger(progress = null) {
             console.warn(`${LOG_PREFIX} backfill incomplete: failed batch start(s) ${[...pendingFailed].join(', ')}`);
             return;
         }
+        // HIDDEN-MESSAGES GUARD (end): if the run skipped most of the chat as
+        // hidden, a ledger built from this would be mostly holes — refuse to
+        // mark done unless the user confirms.
+        const readMsgs = coveredMsgs + totalSkipped;
+        if (readMsgs > 0 && totalSkipped / readMsgs > 0.5) {
+            const ok = typeof window !== 'undefined' && typeof window.confirm === 'function'
+                && window.confirm(`The backfill read only ${coveredMsgs} of ${readMsgs} messages — the other ${totalSkipped} are hidden (is_system), e.g. Summaryception-summarized turns. A ledger built from this would be mostly holes.\n\nMark the backfill done anyway?`);
+            if (!ok) {
+                saveChatDebounced();
+                toastr.warning(`Backfill finished but read only ${coveredMsgs}/${readMsgs} messages (${totalSkipped} hidden) — NOT marked done. Unhide the messages and run it again.`, 'Character Cells', { timeOut: 15000 });
+                console.warn(`${LOG_PREFIX} backfill not done: ${totalSkipped}/${readMsgs} messages hidden`);
+                return;
+            }
+        }
         state.backfill.done = true;
         delete state.backfill.progress;
         delete state.backfill.failed;
@@ -263,6 +295,7 @@ export async function backfillLedger(progress = null) {
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
         toastr.success(
             `Backfill complete: ${batches} batches (0 failed), ${totalCommands} state changes` +
+            `${totalSkipped ? `, ${totalSkipped} hidden message(s) skipped` : ''}` +
             `${tierChanges.length ? `, tiers: ${tierChanges.join('; ')}` : ''} — ${elapsed}s. Ledger: ${getLedger().length} events, turn ${state.world.turn}.`,
             'Character Cells', { timeOut: 10000 });
         console.log(`${LOG_PREFIX} backfill done: ${batches} batches, ${totalCommands} commands, ${tierChanges.length} tier changes, world.turn → ${state.world.turn}`);
