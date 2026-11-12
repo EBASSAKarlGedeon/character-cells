@@ -11,12 +11,6 @@ import { ConnectionManagerRequestService } from '../../shared.js';
 import { getSettings } from './settings.js';
 import { LOG_PREFIX } from './config.js';
 
-// A1: the profile gets this long. If it hasn't answered by then (slow reasoning
-// model, long max_tokens), the call moves to the active connection instead of
-// failing — the state update must never be lost to a slow profile.
-const PROFILE_DEADLINE_MS = 90000;
-
-const DEADLINE_HIT = Symbol('deadline');
 
 /** Is a Connection Manager profile selected for the cheap calls? */
 export function hasCheapProfile() {
@@ -52,9 +46,9 @@ async function stripReasoning(text) {
  * One isolated background call. Never throws into the caller's turn: errors
  * are logged and rethrown only if the caller wants them (bookkeeper/backfill/
  * digest each already wrap their calls in try/catch).
- * Flow: profile attempt (if selected) → if it errors, comes back empty, or runs
- * past the deadline, the call goes to the active connection via generateRaw().
- * A late profile reply after the deadline is discarded.
+ * Flow: profile attempt (if selected) → if it errors or comes back empty, the
+ * call goes to the active connection via generateRaw(). A profile attempt runs
+ * for as long as it takes — no deadline.
  * IMPORTANT: responseLength maps onto max_tokens, and thinking models spend
  * reasoning from that SAME budget — callers must budget for reasoning + answer
  * (referee 1024, bookkeeper 2048; lorebook-forge uses 32k+ for the same reason).
@@ -62,28 +56,22 @@ async function stripReasoning(text) {
  * @param {string} prompt
  * @param {number} responseLength max tokens
  * @param {{timeoutMs?:number}} [opts] if given, a HARD deadline: on expiry the call throws
- *   (the referee passes 15 s and treats that as "no task"). Omitted → the profile gets
- *   90 s, then the fallback runs with no deadline. 0 = no deadline at all.
+ *   (the referee passes 15 s and treats that as "no task"). Omitted → no deadline. 0 = none.
  * @returns {Promise<string>} the reply text (reasoning stripped, trimmed)
  */
 export async function cheapCall(systemPrompt, prompt, responseLength, opts = {}) {
-    const hard = opts?.timeoutMs !== undefined;
-    const ms = hard ? Number(opts.timeoutMs) : PROFILE_DEADLINE_MS;
+    const hard = Number(opts?.timeoutMs) > 0;
 
     const profileAttempt = profileCall(systemPrompt, prompt, responseLength); // never rejects
-    let timer;
-    const outcome = ms > 0
+    const outcome = hard
         ? await Promise.race([
             profileAttempt,
-            new Promise((resolve) => { timer = setTimeout(() => resolve(DEADLINE_HIT), ms); }),
+            new Promise((_, reject) =>
+                setTimeout(() => reject(new Error(`cheapCall timed out after ${Number(opts.timeoutMs)} ms`)), Number(opts.timeoutMs))),
         ])
         : await profileAttempt;
-    clearTimeout(timer);
 
-    if (outcome === DEADLINE_HIT) {
-        if (hard) throw new Error(`cheapCall timed out after ${ms} ms`);
-        console.warn(`${LOG_PREFIX} cheapCall: profile exceeded ${ms} ms — falling back to active connection`);
-    } else if (outcome) {
+    if (outcome) {
         return outcome;
     }
 
