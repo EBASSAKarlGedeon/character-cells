@@ -57,6 +57,10 @@ function toolsSection(state) {
       <button class="menu_button" data-cc-digest="1">Rebuild digests</button>
       <div class="cc-tools-note">Re-summarizes old (pre-hot-window) memories per character. The ledger is never touched — digests are cached views. ${ds}</div>
     </div>
+    <div class="cc-tools-row">
+      <button class="menu_button" data-cc-reset="1">Reset internal states</button>
+      <div class="cc-tools-note">Wipes ALL tracked state for THIS chat — cells, ledger, memories, turn counter, dice, world sim, digests — and starts from zero. Chat messages are untouched. Cannot be undone.</div>
+    </div>
   </div>
 </details>`;
 }

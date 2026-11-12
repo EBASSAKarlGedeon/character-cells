@@ -8,7 +8,8 @@ import { getContext, extension_settings, renderExtensionTemplateAsync } from '..
 import { SlashCommandParser } from '../../../slash-commands/SlashCommandParser.js';
 import { SlashCommand } from '../../../slash-commands/SlashCommand.js';
 import { ARGUMENT_TYPE, SlashCommandArgument, SlashCommandNamedArgument } from '../../../slash-commands/SlashCommandArgument.js';
-import { saveChatDebounced, eventSource, event_types, name1 } from '../../../../script.js';
+import { saveChatDebounced, eventSource, event_types, name1, chat_metadata } from '../../../../script.js';
+import { saveStateRef } from './state.js';
 import { getState, hasState, addCell, findCell, setTier, removeCell, addMemory, stateStats, addEvent, getLedger } from './state.js';
 import { ensureRel } from './rel.js';
 import { seedOrigin } from './origin.js';
@@ -218,6 +219,29 @@ function bindPanelEvents($root) {
             $(this).prop('disabled', false).text('Rebuild digests');
             refreshPanelIfOpen();
         }
+    });
+
+    // Reset internal states: wipes this chat's ENTIRE state (cells, ledger,
+    // turn, dice, world sim, digests). Two-click arm/confirm — second click
+    // within 5s executes; chat messages themselves are never touched.
+    let resetArmed = false;
+    $root.on('click.cc', '[data-cc-reset]', function () {
+        const $btn = $(this);
+        if (!resetArmed) {
+            resetArmed = true;
+            $btn.text('⚠ Really reset? Click again').css('color', 'var(--warning, #c0392b)');
+            setTimeout(() => {
+                resetArmed = false;
+                $btn.text('Reset internal states').css('color', '');
+            }, 5000);
+            return;
+        }
+        resetArmed = false;
+        delete chat_metadata[saveStateRef()];
+        updateInjection();
+        refreshPanelIfOpen();
+        saveChatDebounced();
+        toastr.info('Internal states wiped — starting from zero.', 'Character Cells');
     });
 }
 
