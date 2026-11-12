@@ -76,7 +76,7 @@ from the NPC cast lines in the injected block — the user is not an NPC.
 | `llm.js` | The shared cheap-call doorway: routes every background model call (bookkeeper, backfill, digests) through the selected Connection Manager profile when one is set, falling back to `generateRaw()` on the active connection. |
 | `tiers.js` | Tier auto-detection: rolling participation log from the bookkeeper's `appear()` commands, score bands → tier, hysteresis, manual pin/unpin. No UI. |
 | `rel.js` | Relationship layer (slice 9): the code-owned vocabularies (route emoji palette, conditions, warm/cold ladders, tangled stages), the BOND-derived stage with tangled-pin support, trust as the bookkeeper's judgment-only number, drift labels, and the route/condition parsers. The panel's route cards render from this. |
-| `origin.js` | The origin call (slice 9 follow-up): when a NEW NPC cell is born (bookkeeper `char_add`, `/cc-add`, panel ＋), one cheap one-off call reads that character's CARD + the introducing scene and seeds starting bonds/trust/route/condition (+ known likes/dislikes and a threshold). No soft caps — the full −5..+20 engine range. The ONLY place the card is ever read; never fatal; once per cell, ever. |
+| `origin.js` | The origin call (slice 9 follow-up): when a NEW NPC cell is born (bookkeeper `char_add`, `/cc-add`, panel ＋), one cheap one-off call reads that character's CARD, its LOREBOOK entries (the card's embedded book, the character-linked book, and active global books filtered to entries that mention the character as a whole word) + the introducing scene and seeds starting bonds/trust/route/condition (+ known likes/dislikes and a threshold). No soft caps — the full −10..+20 bond range (trust −5..+20). The card is matched by exact normalized name/avatar only (chat participants win), and card/lore/scene text is fenced in tags and declared data, not instructions. Every bond/trust/route/condition value must carry a short verbatim evidence quote that CODE checks as a substring of the card, lore or scene (keys that fail are dropped; a minor cell backed only by the scene stays within ±4). Values apply only while the field still holds its creation default, so a same-pass bookkeeper write or panel edit is never overwritten; numbers are read with a leading-integer parse; threshold/likes/dislikes are length-capped. The ONLY place the card is ever read; never fatal (the whole body is caught); once per cell — `originTried` is set only after a successful apply, with an in-flight guard against concurrent calls. |
 | `commands.js` | The bookkeeper command grammar — ONE parser + applier shared by the live bookkeeper and the backfill, so the two can never drift. Includes the auto-creation ops (`char_add`, `faction_add`, `quest_add`) and the `AUTO_CREATE_CAP`. |
 | `ledger-browser.js` | The Extensions-panel drawer ("Character Cells"): the bookkeeper profile dropdown + bookkeeper/auto-create toggles on top, then the event ledger browser — filters (text/witness/importance), inline edits (what/imp/turn/witnesses), manual delete/add — the only place an event can be removed, and only by hand. |
 | `backfill.js` | Strip-copy (chat copy with old internal-states blocks removed; carries over existing cell state) + ledger backfill from chat history in batches — seeded mode after an import, cast-creating otherwise. |
@@ -160,17 +160,56 @@ character doesn't hold are not in the prompt at all:
 - **WHAT YOU KNOW** — the ledger filtered to this character's witness list.
 - **USER** — titles and condition only (observable from outside), not
   inventory/mods.
-- World sections via `pushWorldSections(L, world, { perspective: true })`:
-  faction **intel/fibs dropped**, **secret Chekhov plants dropped**,
-  **GM NOTES dropped entirely** (author tools — there is no way to know which
-  notes the character has seen).
+- World sections via `pushWorldSections(L, world, { perspective: true, povId })`:
+  an item is shown in detail only when it is **witness-tagged** for the POV
+  (`witnesses: [cellId]` on a faction / quest / Chekhov bullet; factions get
+  their witnesses from the panel's **Witnesses** field — comma-separated cell
+  ids or names, unknown names dropped). Unwitnessed
+  factions show their **name only** (goal/state/conflict/relations dropped;
+  intel/fibs are never shown), unwitnessed quests show **type + name only**
+  (progress/reward dropped), and Chekhov plants are shown only when
+  witness-tagged **and** non-secret. The DND TASK SIM line drops the **NPC
+  roll** (`roll.npc`). **GM NOTES dropped entirely** (author tools — there is
+  no way to know which notes the character has seen).
 
-It applies only in **Main Character mode** (`/cc-mode main`), and only when
-exactly one non-fixed cell is main-tier — otherwise `updateInjection()` falls
-back to the omniscient block (logged in the console). In group narration the
+It applies only in **Main Character mode** (`/cc-mode main`). **POV rule
+(decided, option A):** exactly one main-tier cell → that cell is the POV and is
+remembered as `state.povId`; zero or several main-tier cells → the **last POV
+is kept** (while that cell exists), so a tier shuffle never silently flips to
+the omniscient block. Only a chat that has never had a POV falls back to the
+group (omniscient) block (logged in the console). `resolvePov()` is the one
+place that decides. In group narration the
 model voices several characters from one prompt, so the omniscient block
 remains the default there; a per-character perspective for group scenes is a
 possible future addition.
+
+### Injection & digest rules
+
+- **Empty blocks inject nothing.** The `USER:` line is added only when the user
+  cell has content (inventory, titles, mods, or a non-"healthy" status); an
+  empty-block check counts content lines only — the header and the trailing
+  `TURN:` line never count — so a fresh chat injects nothing.
+- **Failure never leaves a stale block.** `updateInjection()` wraps the whole
+  build; on any error it logs and unregisters the injection
+  (`setExtensionPrompt(..., NONE)`).
+- **Recent / landmark / cold are disjoint.** Landmarks (imp 3, newest
+  `LANDMARK_CAP` BY TURN) have their own line and are excluded from the recent
+  list. "Recent" = inside the hot window (`HOT_WINDOW_TURNS`) measured against
+  `world.turn` BY TURN, sorted by turn, newest 12 — not array position.
+  Everything older (including imp-3 events past the landmark cap) is cold.
+- **Digests** are built only for cells whose line will carry one (the POV in
+  perspective mode; main/secondary otherwise). A build summarizes **ALL** cold
+  events: chunks of 80, each call folding its chunk into the summary so far.
+  Staleness is a hash over the cold set's event ids, witnesses, turns and text
+  (not just count + newest id). A failed build records a 5-minute retry-after
+  in `state.digestRetry` (a manual `/cc-digest rebuild` ignores it) and keeps
+  the last good digest.
+- **Removing a cell** purges its id from every ledger/memory witness list (and
+  `present`, digests, `povId`), so a character re-added under the same name does
+  not inherit the old one's knowledge.
+- **Not done yet (design needed):** snapshots still copy the whole ledger
+  (B13), and there is no global injection size budget / cross-line event dedupe
+  (B14).
 
 ### Witness filtering (the memory-mixing fix)
 
@@ -294,29 +333,42 @@ awaits), so mechanics resolve BEFORE the narrator writes — one tick per
 generation; quiet prompts and dry runs are guarded. The tick owns `world.turn`
 (+1 per generation). What it runs:
 
-- **Referee** — a cheap call reads the user's NEW message: a skilled action
+- **Referee** — a cheap call (15 s timeout; a timeout is treated like any
+  failure: no task this turn, the tick continues) reads the user's NEW message: a skilled action
   with a real failure condition queues `world.task` (actor, action, difficulty),
   an intimate NSFW exchange sets `world.worldsimSkip='next'` (World Sim pauses
   one turn).
 - **Task resolution** — when a task was queued: DC locked within the difficulty
   band, a real d20 roll modified by bonds (≥+4 → −1 … ≥+15 → −4; ≤−3 → +2 …),
-  inventory/title modifiers summed, crit bands on nat20/≥+8 and nat1/≤−8. The
+  inventory/title modifiers summed, crit bands: nat 20 or Δ≥+8 = crit success,
+  nat 1 or Δ≤−8 = crit failure (nat 1 is always a crit failure). The
   outcome lands in `world.roll` and the narrator writes to a decided result.
 - **Off-screen agendas** — every cell NOT in `state.present` advances its
   agenda (+1/turn); completion applies effects (rest → heal + grudge cleared,
-  reconcile → BOND+1, research → plants a W1 Chekhov seed), then refreshes to
-  a mundane 1–3 step agenda.
+  reconcile → BOND+1, research → plants a W1 Chekhov seed — only while fewer
+  than 20 ACTIVE bullets exist), then refreshes to a mundane 1–3 step agenda.
+  The effect is chosen by the agenda's stored `kind` (`rest` / `reconcile` /
+  `research` / `other`, classified with whole-word matching when the agenda is
+  created or edited; refreshed agendas are `mundane` and have no effect), never
+  by re-reading the goal text — so a refreshed "rest" or "study" does not
+  re-trigger an effect.
 - **Bond ticks** — every 5th turn a Sparks check (≥7 → BOND+1, else decay when
-  no spark was gained since the last check); every 3rd turn a Grudge check
+  no spark was gained since the previous Sparks CHECK — `lastSparks` is updated
+  only at the check); every 3rd turn a Grudge check
   (≥5 → BOND−1).
-- **Chekhov gates** — bullets age +1/turn, prune at ≥12 (cap 20); the fire
+- **Chekhov gates** — bullets age +1/turn, prune at ≥12 (cap 20 ACTIVE bullets — fired/pruned ones don't count); the fire
   gate opens at age ≥4 with threshold = base (W1 18 / W2 13 / W3 8) − age −
   proximity from the last tier-log scene roles (spoke −2 / present −1); ≤5 d20
   checks per turn, highest-weight first; nat1 = jam (status fired + a fired
   note); nat20 grants −4 to the rest. `settings.autoChekhov` toggles this.
 - **World Sim** — both tables roll per turn into `world.worldsim` (duo mode
-  when ≤2 named NPCs are on stage or none are off-screen);
+  when the tracked cast has ≤2 non-user cells in total — on or off stage — or none are off-screen);
   `settings.worldSimEnabled` toggles it.
+- **Snapshots & stops** — every tick snapshots the pre-tick state under the AI
+  message index. Swipe/regenerate rewinds to it first; if that snapshot is
+  missing the tick is **skipped** for that generation (error logged, nothing
+  re-snapshotted). A stopped generation (`GENERATION_STOPPED`) rewinds the tick
+  that was run for it, so the next send does not tick on top of an aborted one.
 - **Fired bullets** surface for one turn as a "CHEKHOV FIRES — weave in now"
   injection (secrets hidden in perspective mode; standard-table results hidden
   there too). `/cc-worldsim on|off|now` is the user control.
@@ -342,11 +394,18 @@ inferring those with a model would be strictly worse than parsing them. The
    env/physics, and the TURN header value. No model call. Marks the state
    `imported = { turn, at }`.
 2. **Clean copy** — creates a NEW chat file (original untouched) with every
-   block stripped (GFX-wrapped form included; prose, dialogue, the
+   block stripped (`strip.js`; GFX-wrapped form included, and swipes are counted
+   and stripped too; a block with no closing tag ends at `<!-- GFX_END -->`, the
+   next blank line or the next state tag — never at end of message; an orphan
+   empty GFX_START/GFX_END pair is removed; prose, dialogue, the
    time/location header and non-state GFX are kept) and switches to it.
    Since the import happens BEFORE cleaning and the HTML is gone from the
-   copy's text, the copy **carries the existing cell state over** (deep-cloned;
-   only the backfill progress resets) instead of resetting to fresh.
+   copy's text, the copy **carries the cell state over only for an imported (seeded) chat**
+   (deep-cloned; the backfill progress resets). A chat that was never imported
+   gets a **fresh** state (cells, ledger, world) so the replay cannot
+   double-count bond/inventory ops on top of live-play state; running the
+   backfill directly on a chat that still holds live state asks first and then
+   resets it.
 3. **Backfill** — walks the cleaned chat from turn 0 in batches of 4 messages,
    one cheap call per batch (Summaryception's backlog processing). Progress is
    checkpointed: cancelable, resumable, `backfill.done` prevents double runs.
@@ -359,10 +418,22 @@ inferring those with a model would be strictly worse than parsing them. The
    prevented.
    - **Normal mode** (fresh chats): the full grammar, now including
      `char_add` — the backfill creates the cast from history as it goes.
+   - **Failures & chat switches**: a failed batch is recorded in
+     `backfill.failed` (progress still moves on), logged, and retried FIRST on
+     the next run; `backfill.done` is set only when no batch failed, and the
+     completion toast reports the failed count. Failed `applyCommand` lines are
+     logged with the command text. The loop checks the chat token every
+     iteration and in the error path — a chat switch stops it without saving
+     into the wrong chat.
    - **Turn accounting** (all backfills): events stamp with a LOCAL virtual
      turn counter advanced by the `turn()` markers in the old text — real
      historical turns instead of everything stamped with the current
-     `world.turn`, which stays untouched (e.g. at the imported 188).
+     `world.turn`. The virtual counter is checkpointed in `backfill.virtualTurn`
+     and restored on resume. On completion `world.turn` is synced:
+     `max(world.turn, final virtual turn)` — a reset (non-seeded) world lands
+     exactly on the replayed turn, a seeded chat keeps its imported turn (e.g.
+     188) unless the replay ran further — so the hot window and digests use one
+     consistent clock.
 
 `/cc-backfill` and `/cc-backfill cancel` do the same from the terminal.
 
@@ -427,3 +498,7 @@ messages, to protect in-progress editing.
   the tick engine already ports.
 - **Tuning** — Chekhov thresholds and whether the World Sim standard table
   stays, both pending hand-testing feel.
+
+## Panel layout (v2)
+
+The panel is card-based: **CHARACTERS** (one card per NPC: tier, agenda, step, location, body, inventory, aware, fibs, circle — replaces the old AGENDAS / LOCATIONS / INVENTORIES / CAST sections), **RELATIONSHIPS** (route/condition chips, stage ladder, BOND/SPARKS/GRUDGE bars, trust, likes — replaces the old BONDS section), **FACTIONS** (one card each; families, crews and organisations — the bookkeeper is told to create them and now *sees* existing ones in its state summary). Editable values are `contenteditable` spans, which never fire `change`; `index.js` commits them on `focusout` (Enter commits, Esc reverts, paste is plain text). Empty values render empty and show their placeholder via CSS `::before`, so a placeholder is never saved as data. Redraws preserve open drawers and scroll position.

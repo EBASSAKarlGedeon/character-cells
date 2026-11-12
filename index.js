@@ -9,7 +9,7 @@ import { SlashCommandParser } from '../../../slash-commands/SlashCommandParser.j
 import { SlashCommand } from '../../../slash-commands/SlashCommand.js';
 import { ARGUMENT_TYPE, SlashCommandArgument, SlashCommandNamedArgument } from '../../../slash-commands/SlashCommandArgument.js';
 import { saveChatDebounced, eventSource, event_types, name1, chat_metadata } from '../../../../script.js';
-import { saveStateRef, restoreAfterDelete, clearSnapshots } from './state.js';
+import { saveStateRef, restoreAfterDelete, clearSnapshots, classifyAgendaKind } from './state.js';
 import { getState, hasState, addCell, findCell, setTier, removeCell, addMemory, stateStats, addEvent, getLedger } from './state.js';
 import { ensureRel } from './rel.js';
 import { seedOrigin } from './origin.js';
@@ -22,11 +22,11 @@ import { updateInjection, setInjectionEnabled } from './inject.js';
 import { initBookkeeper, initBookkeeperEvents, isBookkeeperEnabled, setBookkeeperEnabled } from './bookkeeper.js';
 import { pinTier, unpinTier, isAutoTierEnabled, setAutoTierEnabled, applyAutoTier } from './tiers.js';
 import { getSettings, persistSettings } from './settings.js';
-import { buildPerspectiveBlock, previewBlock } from './inject.js';
+import { buildPerspectiveBlock, previewBlock, resolvePov } from './inject.js';
 import { cleanCopyChat, backfillLedger, cancelBackfill, isBackfillRunning } from './backfill.js';
 import { importInternalStates } from './import-states.js';
 import { rebuildAllDigests } from './digest.js';
-import { runTick, rerollWorldSim } from './tick.js';
+import { runTick, rerollWorldSim, rewindAbortedTick, markTickComplete } from './tick.js';
 import { LOG_PREFIX } from './config.js';
 
 const MODULE_NAME = 'character_cells';
@@ -41,6 +41,7 @@ function openPanel() {
     $('<div id="cc_dialog" class="dialog-popup wide_dialogs_popup"><div class="cc-dialog-inner"></div></div>')
         .appendTo('body');
     $('#cc_dialog .cc-dialog-inner').html(html);
+    $('#cc_dialog details[data-sec="cast"], #cc_dialog details[data-sec="relationships"]').attr('open', '');
     bindPanelEvents($('#cc_dialog'));
     $('#cc_dialog').dialog({
         title: 'Character Cells — Internal States',
@@ -55,19 +56,48 @@ function openPanel() {
 function refreshPanelIfOpen() {
     const dlg = $('#cc_dialog');
     if (!dlg.length) return;
-    dlg.find('.cc-dialog-inner').html(renderStateHtml(getState()));
+    // Keep which drawers are open and the scroll position across redraws.
+    const $inner = dlg.find('.cc-dialog-inner');
+    const openSecs = $inner.find('details.cc-sec[open]').map((_, el) => el.getAttribute('data-sec')).get();
+    const scroll = $inner.scrollTop();
+    $inner.html(renderStateHtml(getState()));
+    $inner.find('details.cc-sec').each((_, el) => { if (openSecs.includes(el.getAttribute('data-sec'))) el.open = true; });
+    $inner.scrollTop(scroll);
     bindPanelEvents(dlg);
 }
 
 // ---------------------------------------------------------------- editing
 
 function bindPanelEvents($root) {
-    $root.off('.cc').on('change.cc', '[data-field]', function () {
+    // <select>/<input> fields fire `change`.
+    $root.off('.cc').on('change.cc', '[data-field]:not([contenteditable])', function () {
         const $el = $(this);
-        const field = $el.data('field');
-        const value = $el.is('[contenteditable]') ? $el.text().trim() : $el.val();
-        applyField($el, field, value);
+        applyField($el, $el.data('field'), $el.val());
         saveChatDebounced();
+    });
+
+    // contenteditable spans NEVER fire `change` — commit on focusout when the text
+    // actually changed. Enter commits (no stray <div>/<br>), Esc reverts, paste is plain text.
+    $root.on('focusin.cc', '.cc-ed', function () { $(this).data('orig', $(this).text().trim()); });
+    $root.on('focusout.cc', '.cc-ed', function () {
+        const $el = $(this);
+        const value = $el.text().trim();
+        if (value === $el.data('orig')) return;
+        $el.data('orig', value);
+        applyField($el, $el.data('field'), value);
+        saveChatDebounced();
+        updateInjection();
+        // Bars and the stage ladder derive from BOND — redraw only for that edit.
+        if (/^bond-/.test(String($el.data('field')))) setTimeout(refreshPanelIfOpen, 0);
+    });
+    $root.on('keydown.cc', '.cc-ed', function (e) {
+        if (e.key === 'Enter') { e.preventDefault(); this.blur(); }
+        else if (e.key === 'Escape') { $(this).text($(this).data('orig') || ''); this.blur(); }
+    });
+    $root.on('paste.cc', '.cc-ed', function (e) {
+        e.preventDefault();
+        const t = (e.originalEvent.clipboardData || window.clipboardData).getData('text/plain').replace(/\s*\n\s*/g, ' ');
+        document.execCommand('insertText', false, t);
     });
 
     $root.on('click.cc', '[data-unpin-cell]', function () {
@@ -133,7 +163,7 @@ function bindPanelEvents($root) {
     $root.on('click.cc', '[data-add-faction]', function () {
         const name = $root.find('[data-sec="factions"] .cc-new').val().trim();
         if (name) {
-            getState().world.factions.push({ id: uid(), name, goal: '', intel: '', fibs: '', fstate: '', conflict: '', relations: '' });
+            getState().world.factions.push({ id: uid(), name, goal: '', intel: '', fibs: '', fstate: '', conflict: '', relations: '', witnesses: [] });
             $root.find('[data-sec="factions"] .cc-new').val('');
             refreshPanelIfOpen(); saveChatDebounced();
         }
@@ -273,7 +303,7 @@ function applyField($el, field, value) {
         case 'identity': if (cell) cell.identity = value; break;
         case 'status': if (cell) cell.status = value; break;
         case 'archetype': if (cell) cell.archetype = value; break;
-        case 'agenda-goal': if (cell) cell.agenda.goal = value; break;
+        case 'agenda-goal': if (cell) { cell.agenda.goal = value; cell.agenda.kind = classifyAgendaKind(value); } break;
         case 'agenda-step': if (cell) cell.agenda.step = num(value); break;
         case 'agenda-max': if (cell) cell.agenda.max = num(value); break;
         case 'agenda-location': if (cell) cell.agenda.location = value; break;
@@ -303,6 +333,9 @@ function applyField($el, field, value) {
         case 'faction-state': if (faction) faction.fstate = value; break;
         case 'faction-conflict': if (faction) faction.conflict = value; break;
         case 'faction-relations': if (faction) faction.relations = value; break;
+        // Witnesses: cell ids (or names) that have seen this faction. Perspective mode shows
+        // the faction's details only to the POV when the POV is in this list.
+        case 'faction-witnesses': if (faction) faction.witnesses = resolveWitnesses(value, state.cells); break;
         case 'quest-name': if (quest) quest.name = value; break;
         case 'quest-progress': if (quest) quest.progress = value; break;
         case 'quest-reward': if (quest) quest.reward = value; break;
@@ -384,6 +417,24 @@ function initEventHandlers() {
         }
         updateInjection();
     });
+    // A3: a STOPPED generation never writes its scene — rewind the tick that was run
+    // for it, so the next send does not tick on top of an aborted tick. The tick is
+    // final once the reply lands (MESSAGE_RECEIVED) or the generation ends.
+    if (event_types.GENERATION_STOPPED) {
+        eventSource.on(event_types.GENERATION_STOPPED, () => {
+            if (hasState() && rewindAbortedTick()) {
+                saveChatDebounced();
+                updateInjection();
+                renderChatTable();
+                refreshPanelIfOpen();
+            }
+        });
+    } else {
+        console.warn(`${LOG_PREFIX} event_types.GENERATION_STOPPED missing — aborted ticks will not be rewound`);
+    }
+    for (const ev of [event_types.MESSAGE_RECEIVED, event_types.GENERATION_ENDED]) {
+        if (ev) eventSource.on(ev, markTickComplete);
+    }
     // Pre-generation tick (FF5 mechanics port): referee call for the dice, agenda
     // ticking, Chekhov aging + firing, bond cycles, World Sim roll. Hooked on
     // GENERATION_AFTER_COMMANDS because Generate() AWAITS it before assembling
@@ -614,8 +665,9 @@ function registerSlashCommands() {
                 persistSettings();
                 updateInjection();
                 const mains = getState().cells.filter(c => !c.fixed && c.tier === 'main');
-                if (mains.length === 1) return `Main Character mode ON — every reply is written from ${mains[0].name}'s knowledge only.`;
-                return 'Main Character mode ON — but there is no exactly-one main-tier character yet, so the omniscient block stays active until one exists.';
+                const pov = resolvePov();
+                if (pov) return `Main Character mode ON — every reply is written from ${pov.name}'s knowledge only.`;
+                return 'Main Character mode ON — but no POV is established yet (it needs exactly one main-tier character once), so the group (omniscient) block stays active until then. After that the last POV is kept.';
             }
             if (arg === 'group' || arg === 'off') {
                 settings.mainCharacterMode = false;
@@ -625,9 +677,11 @@ function registerSlashCommands() {
             }
             if (!settings.mainCharacterMode) return 'Main Character mode is OFF (omniscient block). Use /cc-mode main to enable.';
             const mains = getState().cells.filter(c => !c.fixed && c.tier === 'main');
+            const pov = resolvePov();
+            if (!pov) return 'Main Character mode is ON, but no POV is established yet (needs exactly one main-tier character once) — the group (omniscient) block is being used.';
             return mains.length === 1
-                ? `Main Character mode is ON — perspective of ${mains[0].name}.`
-                : `Main Character mode is ON, but ${mains.length === 0 ? 'no' : mains.length} main-tier character(s) exist — the omniscient block is being used instead.`;
+                ? `Main Character mode is ON — perspective of ${pov.name}.`
+                : `Main Character mode is ON — perspective of ${pov.name} (kept from earlier; ${mains.length} main-tier characters now).`;
         },
     }));
 
@@ -667,7 +721,7 @@ function registerSlashCommands() {
 
     SlashCommandParser.addCommandObject(SlashCommand.fromProps({
         name: 'cc-worldsim',
-        helpString: 'World Sim: each turn the tick engine rolls a d20 and picks an ambient event category (DuoTable with ≤2 named NPCs or none off-screen, StandardTable otherwise). Usage: /cc-worldsim on | off | now | (empty = status)',
+        helpString: 'World Sim: each turn the tick engine rolls a d20 and picks an ambient event category (DuoTable with ≤2 non-user cells or none off-screen, StandardTable otherwise). Usage: /cc-worldsim on | off | now | (empty = status)',
         positionalArgumentList: [SlashCommandArgument.fromProps({
             description: 'on / off / now / (empty = status)', typeList: [ARGUMENT_TYPE.STRING],
         })],
@@ -699,6 +753,17 @@ function registerSlashCommands() {
             return ledger.map(e => `[${e.id}] ${e.what} — w: ${e.witnesses.join(', ')} (imp ${e.importance}, turn ${e.turn})`).join('\n') + `\nTotal: ${ledger.length} events, current turn ${turn}`;
         },
     }));
+}
+
+/** Comma-separated cell ids / names → known cell ids (unknown names are dropped, duplicates removed). */
+function resolveWitnesses(value, cells) {
+    const out = [];
+    for (const tok of String(value || '').split(',').map(s => s.trim()).filter(Boolean)) {
+        const t = tok.toLowerCase();
+        const c = cells.find(x => x.id === t || slugOf(x.name) === slugOf(t) || x.name.toLowerCase() === t);
+        if (c && !out.includes(c.id)) out.push(c.id);
+    }
+    return out;
 }
 
 function slugOf(name) {

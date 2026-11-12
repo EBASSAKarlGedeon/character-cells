@@ -4,7 +4,7 @@
 // here makes it available to both.
 
 import { name1 } from '../../../../script.js';
-import { getState, slug, addCell, addEvent, findEvent } from './state.js';
+import { getState, slug, addCell, addEvent, findEvent, classifyAgendaKind } from './state.js';
 import { ensureRel, parseRoute, parseCondition, stageFor, TANGLED_STAGES } from './rel.js';
 
 /** New tracked entries auto-creation may create per model call (junk flood guard). */
@@ -111,7 +111,7 @@ export function applyCommand(cmd, currentTurn, sceneRoles, opts = {}) {
             const cell = resolveCell(parts[0]);
             if (!cell) return 'skip: unknown cell';
             cell.agenda = cell.agenda || {};
-            if (kv.goal) cell.agenda.goal = val(kv.goal);
+            if (kv.goal) { cell.agenda.goal = val(kv.goal); cell.agenda.kind = classifyAgendaKind(cell.agenda.goal); } // A4
             if (kv.location) cell.agenda.location = val(kv.location);
             if (kv.max !== undefined) cell.agenda.max = intOf(kv.max);
             return `agenda_set: ${cell.name}`;

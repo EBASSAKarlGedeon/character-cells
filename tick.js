@@ -28,7 +28,7 @@
 // tick only executes rules; it never invents story.
 
 import { chat } from '../../../../script.js';
-import { getState, hasState, findCell, chatToken, sameChat, takeSnapshot, restoreSnapshotAt } from './state.js';
+import { getState, hasState, findCell, chatToken, sameChat, takeSnapshot, restoreSnapshotAt, classifyAgendaKind } from './state.js';
 import { cheapCall } from './llm.js';
 import { parseCommand, applyCommand } from './commands.js';
 import { markRelStamps } from './rel.js';
@@ -36,6 +36,7 @@ import { getSettings } from './settings.js';
 import { LOG_PREFIX } from './config.js';
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const REFEREE_TIMEOUT_MS = 15000; // A1: a hung referee must not hang Generate()
 const d20 = () => 1 + Math.floor(Math.random() * 20);
 
 // ---------------------------------------------------------------- world sim
@@ -66,7 +67,10 @@ const DUO_TABLE = [
     { band: [19, 20], event: 'CALM', desc: 'Quiet; ambient detail welcome' },
 ];
 
-/** Standard table needs 3+ named NPCs with off-screen ones; else duo. */
+/**
+ * A7 (DECIDED): counts ALL non-user cells, on stage or off. The standard table
+ * needs 3+ non-user cells with at least one off-screen; otherwise duo.
+ */
 function pickWorldSimTable(s) {
     const npcs = s.cells.filter(c => !c.fixed);
     const offscreen = npcs.filter(c => !(s.present || []).includes(c.id));
@@ -100,18 +104,20 @@ function tickAgendas(s, turn, log) {
             continue;
         }
         // --- completion effects (FF5 Internal Agenda)
-        const goal = String(a.goal || '').toLowerCase();
-        if (/rest|recover|sleep|heal/.test(goal)) {
+        // A4: switch on the agenda KIND stored when it was created — never on goal-text
+        // substrings. A refreshed mundane agenda is stamped 'mundane' → no effect.
+        const kind = a.kind || classifyAgendaKind(a.goal);
+        if (kind === 'rest') {
             cell.status = 'healthy';
             cell.bonds.grudge = 0;
             log.push(`agenda complete (rest): ${cell.name} → healthy, grudge cleared`);
-        } else if (/reconcil|apolog|make up/.test(goal)) {
+        } else if (kind === 'reconcile') {
             cell.bonds.user = clamp((Number(cell.bonds.user) || 0) + 1, -10, 20);
             log.push(`agenda complete (reconcile): ${cell.name} BOND+1`);
-        } else if (/research|investigat|study|search/.test(goal)) {
+        } else if (kind === 'research') {
             // plant a passive W1 Chekhov seed from what was investigated
             const bullets = s.world.chekhov || [];
-            if (bullets.length < 20) {
+            if (bullets.filter(x => (x.status || 'active') === 'active').length < 20) { // A5: only ACTIVE bullets count against the cap
                 bullets.push({ id: uid(), text: `Findings from: ${a.goal}`, status: 'active', weight: 1, age: 0, depends: '', secret: false });
                 log.push(`agenda complete (research): Chekhov seed planted for ${cell.name}`);
             }
@@ -123,7 +129,7 @@ function tickAgendas(s, turn, log) {
         // --- refresh: new mundane agenda (FF5 default steps)
         const mundane = ['rest', 'eat', 'work', 'wander', 'study', 'train'];
         const m = mundane[Math.floor(Math.random() * mundane.length)];
-        cell.agenda = { goal: m, step: 0, max: 1 + Math.floor(Math.random() * 3), location: a.location || '' };
+        cell.agenda = { goal: m, kind: 'mundane', step: 0, max: 1 + Math.floor(Math.random() * 3), location: a.location || '' };
         log.push(`agenda refresh: ${cell.name} → "${m}" (${cell.agenda.max} steps)`);
     }
 }
@@ -139,14 +145,13 @@ function tickBonds(s, turn, log) {
         if (cell.fixed) continue;
         const b = cell.bonds;
         cell.tick = cell.tick || { sparks: 0, grudge: 0 };
-        // positive-interaction bookkeeping: did the bookkeeper add Sparks since the last check?
-        const sparked = (Number(b.sparks) || 0) > (Number(cell.tick.lastSparks) || 0);
-        cell.tick.lastSparks = Number(b.sparks) || 0;
-
         // --- Sparks check (every 5th turn)
         cell.tick.sparks = (Number(cell.tick.sparks) || 0) + 1;
         if (cell.tick.sparks >= 5) {
             cell.tick.sparks = 0;
+            // A6: "did the bookkeeper add Sparks since the last CHECK?" lastSparks is read and
+            // updated ONLY here — updating it every turn made `sparked` mean "since last turn".
+            const sparked = (Number(b.sparks) || 0) > (Number(cell.tick.lastSparks) || 0);
             if ((Number(b.sparks) || 0) >= 7) {
                 b.user = clamp((Number(b.user) || 0) + 1, -10, 20);
                 b.sparks = 0;
@@ -157,6 +162,7 @@ function tickBonds(s, turn, log) {
             } else {
                 log.push(`bond check: ${cell.name} sparks ${b.sparks} (building, not yet 7)`);
             }
+            cell.tick.lastSparks = Number(b.sparks) || 0;
         }
         // --- Grudge check (every 3rd turn)
         cell.tick.grudge = (Number(cell.tick.grudge) || 0) + 1;
@@ -295,7 +301,7 @@ RULES:
         // max_tokens budget — 150 was fully consumed by reasoning, the answer came
         // back empty and every referee call silently fell back (llm.js note).
         const token = chatToken();
-        const reply = await cheapCall(REFeree_SYSTEM, prompt, 1024);
+        const reply = await cheapCall(REFeree_SYSTEM, prompt, 1024, { timeoutMs: REFEREE_TIMEOUT_MS }); // timeout → catch below → no task
         if (!sameChat(token)) { console.warn(`${LOG_PREFIX} referee: chat changed mid-call — discarded`); return 0; }
         const lines = String(reply || '').split('\n').map(l => l.trim()).filter(Boolean);
         for (const line of lines) {
@@ -341,6 +347,9 @@ function resolveTask(s, turn, log) {
     const actorRoll = isUserActor ? userRoll : npcRoll;
     const delta = actorRoll + dcMod - dc;
     const band = (d, roll) => {
+        // A8: ARCHITECTURE.md specifies crit bands on nat20/≥+8 AND nat1/≤−8; the code
+        // only had the nat-20 half, so a nat 1 with a good modifier was a plain miss/hit.
+        if (roll === 1) return 'crit failure';
         if (roll === 20 || d >= 8) return 'crit success';
         if (d >= 0) return 'success';
         if (d >= -3) return 'near miss';
@@ -377,15 +386,25 @@ export async function runTick(type = 'normal') {
     // so a discarded swipe's dice never count. Otherwise it is the next message.
     const rerolling = (type === 'swipe' || type === 'regenerate') && chat.length && !chat[chat.length - 1].is_user;
     const at = rerolling ? chat.length - 1 : chat.length;
-    if (rerolling && restoreSnapshotAt(at)) console.log(`${LOG_PREFIX} ${type}: state rewound to before message ${at}`);
+    if (rerolling) {
+        if (restoreSnapshotAt(at)) console.log(`${LOG_PREFIX} ${type}: state rewound to before message ${at}`);
+        else {
+            // A2: no pre-tick snapshot for this message → its previous tick cannot be undone.
+            // Ticking on top of the post-tick state double-counts, and snapshotting here would
+            // store post-tick state as "pre-tick". Skip the tick for this generation instead.
+            console.error(`${LOG_PREFIX} ${type}: no snapshot for message ${at} — tick SKIPPED for this generation (state and snapshots untouched)`);
+            return { changes: [], fired: [] };
+        }
+    }
     takeSnapshot(at);
     const tokenAfterRestore = chatToken(); // restore bumps the epoch
+    pendingTick = { at, token: tokenAfterRestore }; // A3: cleared when the reply lands / rewound on stop
     const s = getState();
     const turn = (Number(s.world.turn) || 0) + 1;
     const log = [];
     // 1. Referee: detect the attempted task (dice decide BEFORE the scene is written)
     await refereeCall();
-    if (!sameChat(tokenAfterRestore)) { console.warn(`${LOG_PREFIX} tick aborted: chat changed during referee call`); return { changes: [], fired: [] }; }
+    if (!sameChat(tokenAfterRestore)) { pendingTick = null; console.warn(`${LOG_PREFIX} tick aborted: chat changed during referee call`); return { changes: [], fired: [] }; }
     resolveTask(s, turn, log);
     // 2. Mechanical ticks
     tickAgendas(s, turn, log);
@@ -408,6 +427,24 @@ export async function runTick(type = 'normal') {
     s.world.chekhovFired = chekhovResult.fired;
     if (log.length) console.log(`${LOG_PREFIX} tick @turn ${turn}:\n  ` + log.join('\n  '));
     return { changes: log, fired: chekhovResult.fired };
+}
+
+// A3: the tick run for the generation currently in flight. A stopped generation never
+// writes its scene, so its tick must be rewound — otherwise the next send ticks on
+// top of an aborted tick (turn, dice, bonds and Chekhov ages double-advance).
+let pendingTick = null;
+
+/** The reply landed (or the generation ended normally): the pending tick is final. */
+export function markTickComplete() { pendingTick = null; }
+
+/** GENERATION_STOPPED: rewind to the snapshot taken for the aborted generation. */
+export function rewindAbortedTick() {
+    const p = pendingTick;
+    pendingTick = null;
+    if (!p || !sameChat(p.token)) return false;
+    if (!restoreSnapshotAt(p.at)) return false;
+    console.log(`${LOG_PREFIX} generation stopped: tick for message ${p.at} rewound`);
+    return true;
 }
 
 /** Panel/CC TOOLS convenience: rerun the world-sim roll only (/cc-worldsim now). */

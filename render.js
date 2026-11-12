@@ -14,7 +14,7 @@ function line(parts) {
 }
 
 function editable(value, field, placeholder = '') {
-    return `<span class="cc-ed" contenteditable="true" data-field="${field}" data-ph="${esc(placeholder)}">${esc(value) || placeholder}</span>`;
+    return `<span class="cc-ed" contenteditable="true" data-field="${field}" data-ph="${esc(placeholder)}">${esc(value)}</span>`;
 }
 
 function section(id, icon, title, group, bodyHtml, open = false) {
@@ -84,95 +84,94 @@ export function renderStateHtml(state) {
     const combat = world.combat || {};
     const notes = world.notes || [];
 
-    // ---- NPC AGENDAS (teal)
-    const agendas = npcs.length ? npcs.map(c => {
+    // ---- CHARACTERS (teal) — ONE card per NPC: tier + agenda + location + body +
+    // knowledge + inventory. Replaces the old NPC AGENDAS / LOCATIONS / INVENTORIES /
+    // CAST sections (same data, one place). The card carries data-cell-id so every
+    // edit inside it routes to the right cell.
+    const fld = (label, inner, wide = false) =>
+        '<div class="cc-f' + (wide ? ' cc-f-wide' : '') + '"><span class="cc-fl">' + label + '</span><span class="cc-fv">' + inner + '</span></div>';
+    const castCards = npcs.length ? npcs.map(c => {
         const a = c.agenda || {};
-        return line(
-            `<b>${esc(c.name)}</b> | Agenda: ${editable(a.goal || '', 'agenda-goal', '—')} | ` +
-            `(Step ${editable(String(a.step ?? 0), 'agenda-step')} / ${editable(String(a.max ?? 0), 'agenda-max')}) | ` +
-            `Aware: ${editable((c.aware || []).join(', '), 'aware', 'none')} | ` +
-            `Fibs: ${editable(c.fibs || '', 'fibs', 'none')} | ` +
-            `Circle: ${editable((c.circle || []).join(', '), 'circle', 'none')} | ` +
-            `Body: ${editable(c.status || '', 'status', '—')}`
-        );
-    }).join('<br>') : '<div class="cc-none">- None</div>';
-    const agendasSec = section('agendas', '👤', 'NPC AGENDAS', 'teal', agendas);
+        return '<div class="cc-card" data-cell-id="' + esc(c.id) + '">' +
+          '<div class="cc-card-head"><span class="cc-card-name">' + esc(c.name) + '</span>' +
+            '<span class="cc-card-tools"><select class="cc-tier-select menu_button" data-field="tier" title="Tier — changing it pins the character">' +
+              ['main', 'secondary', 'minor', 'offstage'].map(t => '<option value="' + t + '"' + (c.tier === t ? ' selected' : '') + '>' + t + '</option>').join('') +
+            '</select>' +
+            (c.tierPinned ? '<span title="Tier pinned — auto-tiering is off for this character">📌</span><button class="cc-x" title="Release pin — let auto-tiering manage this character again" data-unpin-cell="' + esc(c.id) + '">♻</button>' : '') +
+            '<button class="cc-x" title="Delete character" data-del-cell="' + esc(c.id) + '">✖</button></span></div>' +
+          '<div class="cc-grid">' +
+            fld('Agenda', editable(a.goal || '', 'agenda-goal', 'no agenda'), true) +
+            fld('Step', editable(String(a.step ?? 0), 'agenda-step') + ' <span class="cc-sep">/</span> ' + editable(String(a.max ?? 0), 'agenda-max')) +
+            fld('Location', editable(a.location || '', 'agenda-location', 'unknown')) +
+            fld('Body', editable(c.status || '', 'status', 'healthy')) +
+            fld('Inventory', editable((c.inventory || []).join(', '), 'inventory', 'nothing'), true) +
+            fld('Aware of', editable((c.aware || []).join(', '), 'aware', 'nothing'), true) +
+            fld('Fibs', editable(c.fibs || '', 'fibs', 'none')) +
+            fld('Circle', editable((c.circle || []).join(', '), 'circle', 'none')) +
+          '</div></div>';
+    }).join('') : '<div class="cc-none">No characters yet.</div>';
+    const castBody = castCards +
+      '<div class="cc-row"><input class="cc-new text_input" placeholder="New character name…"><button class="cc-plus" data-add-char="1">＋</button></div>';
+    const castSec = section('cast', '👥', 'CHARACTERS (' + npcs.length + ')', 'teal', castBody);
 
-    // ---- NPC LOCATIONS (teal)
-    const locs = npcs.length ? npcs.map(c =>
-        line(`<b>${esc(c.name)}</b> | Location: ${editable((c.agenda && c.agenda.location) || '', 'agenda-location', 'unknown')}`)
-    ).join('<br>') : '<div class="cc-none">- None</div>';
-    const locationsSec = section('locations', '👤', 'NPC LOCATIONS', 'teal', locs);
+    // ---- FACTIONS (teal) — families, crews, organisations. One card each.
+    const facBody = (factions.length ? factions.map(f =>
+      '<div class="cc-card" data-faction-id="' + esc(f.id) + '">' +
+        '<div class="cc-card-head"><span class="cc-card-name">' + editable(f.name || '', 'faction-name', 'Name') + '</span>' +
+          '<span class="cc-card-tools"><button class="cc-x" title="Delete faction" data-del-faction="' + esc(f.id) + '">✖</button></span></div>' +
+        '<div class="cc-grid">' +
+          fld('Goal', editable(f.goal || '', 'faction-goal', '—'), true) +
+          fld('State', editable(f.fstate || '', 'faction-state', '—')) +
+          fld('Conflict', editable(f.conflict || '', 'faction-conflict', 'none')) +
+          fld('Intel', editable(f.intel || '', 'faction-intel', 'none'), true) +
+          fld('Fibs', editable(f.fibs || '', 'faction-fibs', 'none')) +
+          fld('Relations', editable(f.relations || '', 'faction-relations', 'none')) +
+          fld('Witnesses', editable((f.witnesses || []).join(', '), 'faction-witnesses', 'none'), true) +
+        '</div></div>').join('') : '<div class="cc-none">No factions yet — families, crews and organisations show up here once the story establishes them.</div>') +
+      '<div class="cc-row"><input class="cc-new text_input" placeholder="New faction name…"><button class="cc-plus" data-add-faction="1">＋</button></div>';
+    const factionsSec = section('factions', '🚩', 'FACTIONS (' + factions.length + ')', 'teal', facBody);
 
-    // ---- NPC INVENTORIES (teal) — one editable line per NPC (FF5 inv scope per character)
-    const invs = npcs.length ? npcs.map(c => `
-      <div class="cc-item" data-cell-id="${esc(c.id)}">
-        ${line(`<b>${esc(c.name)}</b> | Inv: ${editable((c.inventory || []).join(', '), 'inventory', 'none')}`)}
-      </div>`).join('') : '<div class="cc-none">- None</div>';
-    const inventoriesSec = section('inventories', '🎒', 'NPC INVENTORIES', 'teal', invs);
-
-    // ---- FACTIONS (teal)
-    const facBody = (factions.length ? factions.map(f => `
-      <div class="cc-item" data-faction-id="${esc(f.id)}">
-        ${line(
-            `<b>${editable(f.name || '', 'faction-name', 'Name')}</b> | Goal: ${editable(f.goal || '', 'faction-goal', '—')} | ` +
-            `Intel: ${editable(f.intel || '', 'faction-intel', 'none')} | Fibs: ${editable(f.fibs || '', 'faction-fibs', 'none')} | ` +
-            `State: ${editable(f.fstate || '', 'faction-state', '—')} | Conflict: ${editable(f.conflict || '', 'faction-conflict', 'none')} | ` +
-            `Relations: ${editable(f.relations || '', 'faction-relations', 'none')}`
-        )}
-        <button class="cc-x" data-del-faction="${esc(f.id)}">✖</button>
-      </div>`).join('') : '<div class="cc-none">- None</div>') +
-      `<div class="cc-row"><input class="cc-new text_input" placeholder="New faction name…"><button class="cc-plus" data-add-faction="1">＋</button></div>`;
-    const factionsSec = section('factions', '🚩', 'FACTIONS', 'teal', facBody);
-
-    // ---- BONDS (teal) — progress-bar cards, one per NPC
-    const bondCards = npcs.length ? npcs.map(c => {
-        const b = c.bonds || {};
-        const bond = Number(b.user ?? 0), sparks = Number(b.sparks ?? 0), grudge = Number(b.grudge ?? 0);
-        const pct = (v, min, max) => Math.max(0, Math.min(100, ((v - min) / (max - min)) * 100));
-        return `
-    <div class="cc-bond-card" data-cell-id="${esc(c.id)}">
-      <div class="cc-bond-title">${esc((c.name || '').toUpperCase())} <span class="cc-arrow">&harr;</span> USER</div>
-      <div class="cc-bond-row"><span class="cc-bond-label ${bond < 0 ? 'l-bond-neg' : 'l-bond'}">BOND: ${editable(String(bond), 'bond-user')}</span>
-        <div class="cc-track"><div class="cc-fill ${bond < 0 ? 'f-bond-neg' : 'f-bond'}" style="width:${bond < 0 ? pct(-bond, 0, 5) : pct(bond, 0, 20)}%"></div></div></div>
-      <div class="cc-bond-row"><span class="cc-bond-label l-sparks">SPARKS: ${editable(String(sparks), 'bond-sparks')}</span>
-        <div class="cc-track"><div class="cc-fill f-sparks" style="width:${pct(sparks, 0, 15)}%"></div></div></div>
-      <div class="cc-bond-row"><span class="cc-bond-label l-grudge">GRUDGE: ${editable(String(grudge), 'bond-grudge')}</span>
-        <div class="cc-track"><div class="cc-fill f-grudge" style="width:${pct(grudge, 0, 10)}%"></div></div></div>
-    </div>`;
-    }).join('') : '<div class="cc-none">- None</div>';
-    const bondsSec = section('bonds', '💚', 'BONDS', 'teal', bondCards);
-
-    // ---- RELATIONSHIPS (teal) — slice 9: Pura-style route cards, rendered from
-    // data (no format-law fragility). Stage derives from BOND; trust / likes /
-    // dislikes / keepsake / threshold are bookkeeper-maintained, hand-editable.
+    // ---- RELATIONSHIPS (teal) — one card per NPC: route/condition chips, stage
+    // ladder, the three bars (BOND / SPARKS / GRUDGE — the old separate BONDS
+    // section lived here too), trust, likes, keepsake. Stage derives from BOND.
+    const bar = (label, cls, fcls, field, v, pctVal) =>
+      '<div class="cc-bond-row"><span class="cc-bond-label ' + cls + '">' + label + ' ' + editable(String(v), field) + '</span>' +
+      '<div class="cc-track"><div class="cc-fill ' + fcls + '" style="width:' + pctVal + '%"></div></div></div>';
+    const pct = (v, min, max) => Math.max(0, Math.min(100, ((v - min) / (max - min)) * 100));
     const relCards = npcs.length ? npcs.map(c => {
         const r = c.rel || {};
-        const bond = Number((c.bonds || {}).user ?? 0);
+        const b = c.bonds || {};
+        const bond = Number(b.user ?? 0), sparks = Number(b.sparks ?? 0), grudge = Number(b.grudge ?? 0);
         const stage = stageOf(c);
         const cold = bond < 0;
         const path = (cold ? COLD_LADDER : WARM_LADDER)
-            .map(s => s === stage ? `<span class="cc-rel-here">${esc(s)}</span>` : esc(s))
-            .join('<span class="cc-rel-arrow">&gt;</span>');
+            .map(s => '<span class="cc-step' + (s === stage ? ' cc-rel-here' : '') + '">' + esc(s) + '</span>')
+            .join('');
         const drift = driftOf(c);
         const driftCls = drift === DRIFT_UP ? 'cc-drift-up' : drift === DRIFT_DOWN ? 'cc-drift-down' : 'cc-drift-hold';
         const keepsakeEv = r.keepsake ? findEvent(r.keepsake) : null;
-        const keepsakeNote = keepsakeEv ? `<span class="cc-rel-keepsake-text">"${esc(keepsakeEv.what)}"</span>`
-            : (r.keepsake ? `<span class="cc-rel-keepsake-text">${esc(r.keepsake)}</span>` : '');
-        return `
-    <div class="cc-rel-card${r.severed ? ' cc-rel-severed' : ''}" data-cell-id="${esc(c.id)}">
-      <div class="cc-rel-head">${esc((c.name || '').toUpperCase())} &harr; USER
-        <span class="cc-rel-route">${editable(r.route || '', 'rel-route', 'route')}</span>
-        <span class="cc-rel-cond">${editable(r.condition || '', 'rel-condition', 'condition')}</span>
-        ${drift ? `<span class="cc-rel-drift ${driftCls}">${esc(drift)}</span>` : ''}
-        ${r.severed ? '<span class="cc-rel-sev-badge">💀 SEVERED</span>' : `<button class="cc-x cc-rel-sev-btn" title="Sever this bond — the card retires after this" data-rel-sever="${esc(c.id)}">💀</button>`}
-      </div>
-      <div class="cc-rel-ladder">${path}${r.stagePin ? ` <span class="cc-rel-pin">${esc(r.stagePin)} 📌 <button class="cc-x" title="Release the tangled stage pin" data-rel-unpin="${esc(c.id)}">♻</button></span>` : ''}</div>
-      <div class="cc-rel-row"><span class="cc-bond-label l-bond">HEART: ${esc(String(bond))}</span> <span class="cc-rel-hint">(moves via sparks/grudge only)</span> | <span class="cc-bond-label l-sparks">TRUST: ${editable(String(r.trust ?? 0), 'rel-trust')}</span></div>
-      <div class="cc-rel-row">Likes: ${editable((r.likes || []).join(', '), 'rel-likes', 'still a mystery')} | Dislikes: ${editable((r.dislikes || []).join(', '), 'rel-dislikes', 'still a mystery')}</div>
-      <div class="cc-rel-row">Keepsake: ${editable(r.keepsake || '', 'rel-keepsake', 'none')} ${keepsakeNote} | Next: ${editable(r.threshold || '', 'rel-threshold', 'no threshold yet')}</div>
-    </div>`;
-    }).join('') : '<div class="cc-none">- None</div>';
+        const keepsakeNote = keepsakeEv ? '<div class="cc-rel-keepsake-text">"' + esc(keepsakeEv.what) + '"</div>' : '';
+        return '<div class="cc-rel-card' + (r.severed ? ' cc-rel-severed' : '') + '" data-cell-id="' + esc(c.id) + '">' +
+          '<div class="cc-rel-head"><span class="cc-card-name">' + esc(c.name) + ' <span class="cc-arrow">&harr;</span> You</span>' +
+            '<span class="cc-chip">' + editable(r.route || '', 'rel-route', 'route') + '</span>' +
+            '<span class="cc-chip">' + editable(r.condition || '', 'rel-condition', 'condition') + '</span>' +
+            (drift ? '<span class="cc-rel-drift ' + driftCls + '">' + esc(drift) + '</span>' : '') +
+            (r.severed ? '<span class="cc-rel-sev-badge">💀 SEVERED</span>'
+                : '<button class="cc-x cc-rel-sev-btn" title="Sever this bond — the card retires after this" data-rel-sever="' + esc(c.id) + '">💀</button>') +
+          '</div>' +
+          '<div class="cc-rel-ladder">' + path + (r.stagePin ? '<span class="cc-rel-pin">' + esc(r.stagePin) + ' 📌 <button class="cc-x" title="Release the tangled stage pin" data-rel-unpin="' + esc(c.id) + '">♻</button></span>' : '') + '</div>' +
+          bar('BOND', bond < 0 ? 'l-bond-neg' : 'l-bond', bond < 0 ? 'f-bond-neg' : 'f-bond', 'bond-user', bond, bond < 0 ? pct(-bond, 0, 5) : pct(bond, 0, 20)) +
+          bar('SPARKS', 'l-sparks', 'f-sparks', 'bond-sparks', sparks, pct(sparks, 0, 15)) +
+          bar('GRUDGE', 'l-grudge', 'f-grudge', 'bond-grudge', grudge, pct(grudge, 0, 10)) +
+          '<div class="cc-grid cc-rel-grid">' +
+            fld('Trust', editable(String(r.trust ?? 0), 'rel-trust')) +
+            fld('Keepsake', editable(r.keepsake || '', 'rel-keepsake', 'none')) +
+            fld('Likes', editable((r.likes || []).join(', '), 'rel-likes', 'still a mystery'), true) +
+            fld('Dislikes', editable((r.dislikes || []).join(', '), 'rel-dislikes', 'still a mystery'), true) +
+            fld('Next', editable(r.threshold || '', 'rel-threshold', 'no threshold yet'), true) +
+          '</div>' + keepsakeNote +
+        '</div>';
+    }).join('') : '<div class="cc-none">No characters yet.</div>';
     const relSec = section('relationships', '💞', 'RELATIONSHIPS', 'teal', relCards);
 
     // ---- QUESTS (purple)
@@ -214,8 +213,8 @@ export function renderStateHtml(state) {
     // ---- INTERNAL THOUGHTS (purple)
     const thinkers = npcs.filter(c => (c.thoughts || '').trim());
     const thoughtsBody = thinkers.length ? thinkers.map(c =>
-        line(`<b>${esc(c.name)}</b> | ${editable(c.thoughts || '', 'thoughts')}`)
-    ).join('<br>') : '<div class="cc-none">- None</div>';
+        `<div class="cc-item" data-cell-id="${esc(c.id)}">` + line(`<b>${esc(c.name)}</b> | ${editable(c.thoughts || '', 'thoughts')}`) + '</div>'
+    ).join('') : '<div class="cc-none">- None</div>';
     const thoughtsSec = section('thoughts', '🧠', 'INTERNAL THOUGHTS', 'purple', thoughtsBody);
 
     // ---- DND TASK SIM (orange)
@@ -268,30 +267,13 @@ export function renderStateHtml(state) {
         `</div>`;
     const userSec = section('user', '🫵', 'USER', 'purple', userBody);
 
-    // ---- CAST & TIERS (teal) — Loreweaver addition: tier control + membership.
-    // A pinned cell shows 📌 and an unpin button (♻) — auto-tiering is not
-    // touching it; clicking ♻ releases it back to auto management.
-    const castBody = (npcs.length ? npcs.map(c => `
-      <div class="cc-item" data-cell-id="${esc(c.id)}">
-        ${line(`<b>${esc(c.name)}</b> | tier: <select class="cc-tier-select menu_button" data-field="tier">
-          ${['main', 'secondary', 'minor', 'offstage'].map(t => `<option value="${t}" ${c.tier === t ? 'selected' : ''}>${t}</option>`).join('')}
-        </select>${c.tierPinned ? ` 📌 <button class="cc-x" title="Release pin — let auto-tiering manage this character again" data-unpin-cell="${esc(c.id)}">♻</button>` : ''}`)}
-        <button class="cc-x" data-del-cell="${esc(c.id)}">✖</button>
-      </div>`).join('') : '<div class="cc-none">- No characters yet.</div>') +
-      `<div class="cc-row"><input class="cc-new text_input" placeholder="New character name…"><button class="cc-plus" data-add-char="1">＋</button></div>`;
-    const castSec = section('cast', '👥', 'CAST & TIERS', 'teal', castBody);
-
     return `
 <div class="cc-panel">
   <div class="cc-topbar">🎬 INTERNAL STATES <span class="cc-turn">(TURN: ${esc(String(world.turn || 0))})</span></div>
-  ${userSec}
   ${castSec}
-  ${agendasSec}
-  ${locationsSec}
-  ${inventoriesSec}
-  ${factionsSec}
-  ${bondsSec}
   ${relSec}
+  ${factionsSec}
+  ${userSec}
   ${questsSec}
   ${chekhovSec}
   ${notesSec}

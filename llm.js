@@ -11,6 +11,10 @@ import { ConnectionManagerRequestService } from '../../shared.js';
 import { getSettings } from './settings.js';
 import { LOG_PREFIX } from './config.js';
 
+// A1: every cheap call has an overall deadline (profile attempt + fallback together).
+// Callers treat the timeout like any other failure (they already catch).
+const DEFAULT_TIMEOUT_MS = 90000;
+
 /** Is a Connection Manager profile selected for the cheap calls? */
 export function hasCheapProfile() {
     return !!getSettings().bookkeeperProfileId;
@@ -51,9 +55,27 @@ async function stripReasoning(text) {
  * @param {string} systemPrompt
  * @param {string} prompt
  * @param {number} responseLength max tokens
+ * @param {{timeoutMs?:number}} [opts] overall deadline (default 90 s; the referee passes 15 s; 0 = none)
  * @returns {Promise<string>} the reply text (reasoning stripped, trimmed)
  */
-export async function cheapCall(systemPrompt, prompt, responseLength) {
+export async function cheapCall(systemPrompt, prompt, responseLength, opts = {}) {
+    const ms = Number(opts?.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+    const ctl = { aborted: false };
+    const call = cheapCallInner(systemPrompt, prompt, responseLength, ctl);
+    if (!(ms > 0)) return call;
+    let timer;
+    const timeout = new Promise((_, reject) => {
+        timer = setTimeout(() => { ctl.aborted = true; reject(new Error(`cheapCall timed out after ${ms} ms`)); }, ms);
+    });
+    call.catch(() => { /* a failure after the timeout already won the race — nobody is listening */ });
+    try {
+        return await Promise.race([call, timeout]);
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+async function cheapCallInner(systemPrompt, prompt, responseLength, ctl) {
     const profileId = getSettings().bookkeeperProfileId;
     if (profileId && cmAvailable()) {
         try {
@@ -81,6 +103,7 @@ export async function cheapCall(systemPrompt, prompt, responseLength) {
         }
     }
     // Fallback / no profile: the preset-free call on the active connection.
+    if (ctl.aborted) throw new Error('cheapCall aborted (timeout) before the fallback call');
     const reply = await generateRaw({
         prompt,
         systemPrompt,
