@@ -28,7 +28,7 @@
 // tick only executes rules; it never invents story.
 
 import { chat } from '../../../../script.js';
-import { getState, hasState, findCell } from './state.js';
+import { getState, hasState, findCell, chatToken, sameChat, takeSnapshot, restoreSnapshotAt } from './state.js';
 import { cheapCall } from './llm.js';
 import { parseCommand, applyCommand } from './commands.js';
 import { markRelStamps } from './rel.js';
@@ -294,7 +294,9 @@ RULES:
         // 1024, not ~150: thinking models spend reasoning tokens out of the SAME
         // max_tokens budget — 150 was fully consumed by reasoning, the answer came
         // back empty and every referee call silently fell back (llm.js note).
+        const token = chatToken();
         const reply = await cheapCall(REFeree_SYSTEM, prompt, 1024);
+        if (!sameChat(token)) { console.warn(`${LOG_PREFIX} referee: chat changed mid-call — discarded`); return 0; }
         const lines = String(reply || '').split('\n').map(l => l.trim()).filter(Boolean);
         for (const line of lines) {
             const cmd = parseCommand(line);
@@ -362,13 +364,28 @@ function resolveTask(s, turn, log) {
  * awaited, so Generate() waits for the dice before building the prompt.
  * @returns {{ changes: string[], fired: string[] }}
  */
-export async function runTick() {
-    if (!hasState()) return { changes: [], fired: [] }; // no state → nothing to run
+export async function runTick(type = 'normal') {
+    // B4: a fresh chat has no state until the first reply — the first generation
+    // would run with no tick, no dice and no injected block. Seed it here (only
+    // when the tracker is on, so untouched chats stay clean).
+    if (!hasState()) {
+        if (!getSettings().bookkeeperEnabled) return { changes: [], fired: [] };
+        getState(); // lazily creates the user cell + fresh world
+    }
+    // B3: index of the AI message this tick is for. Swipe/regenerate re-roll the
+    // LAST AI message (still in chat[]) → rewind to its pre-tick snapshot first,
+    // so a discarded swipe's dice never count. Otherwise it is the next message.
+    const rerolling = (type === 'swipe' || type === 'regenerate') && chat.length && !chat[chat.length - 1].is_user;
+    const at = rerolling ? chat.length - 1 : chat.length;
+    if (rerolling && restoreSnapshotAt(at)) console.log(`${LOG_PREFIX} ${type}: state rewound to before message ${at}`);
+    takeSnapshot(at);
+    const tokenAfterRestore = chatToken(); // restore bumps the epoch
     const s = getState();
     const turn = (Number(s.world.turn) || 0) + 1;
     const log = [];
     // 1. Referee: detect the attempted task (dice decide BEFORE the scene is written)
     await refereeCall();
+    if (!sameChat(tokenAfterRestore)) { console.warn(`${LOG_PREFIX} tick aborted: chat changed during referee call`); return { changes: [], fired: [] }; }
     resolveTask(s, turn, log);
     // 2. Mechanical ticks
     tickAgendas(s, turn, log);

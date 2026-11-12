@@ -3,9 +3,27 @@
 // so it rides along with the existing chat save/sync with zero new plumbing.
 
 // NOTE: third-party load path → 4 levels up to /script.js (see index.js comment).
-import { chat_metadata, name1 } from '../../../../script.js';
+import { chat_metadata, name1, getCurrentChatId, this_chid } from '../../../../script.js';
 
 const STATE_KEY = 'character_cells';
+const SNAP_KEY = 'character_cells_snaps';
+
+// ---------------------------------------------------------------- chat guard (B1)
+// Every async continuation (bookkeeper timer, LLM awaits, origin calls, tick)
+// must prove it still belongs to the chat that dispatched it. getState() reads
+// the LIVE chat_metadata, so a chat switch mid-flight would otherwise run the
+// whole pass against — and save into — the wrong chat.
+let stateEpoch = 0;
+
+/** Opaque token for "this chat, this state lineage". Capture at event time. */
+export function chatToken() {
+    return `${getCurrentChatId() ?? ''}|${this_chid ?? ''}|${stateEpoch}`;
+}
+
+/** Still the same chat (and no snapshot restore since)? */
+export function sameChat(token) {
+    return token === chatToken();
+}
 
 /** @typedef {'main'|'secondary'|'minor'|'offstage'} Tier */
 
@@ -99,6 +117,59 @@ export function getState() {
     if (!w.roll || typeof w.roll !== 'object') w.roll = {};
     if (!w.combat || typeof w.combat !== 'object') w.combat = { mode: 'N/A', engagement: 'N/A', wounds: 'None', exchange: 'N/A' };
     return s;
+}
+
+// ---------------------------------------------------------------- snapshots (B3)
+// Ring of pre-tick state snapshots, persisted with the chat so swipes/deletes
+// after a reload still rewind. `at` = index of the AI message the tick was for.
+const SNAP_MAX = 5;
+
+function snaps() {
+    if (!Array.isArray(chat_metadata[SNAP_KEY])) chat_metadata[SNAP_KEY] = [];
+    return chat_metadata[SNAP_KEY];
+}
+
+/** Snapshot the CURRENT state as the pre-tick state of the AI message at index `at`. */
+export function takeSnapshot(at) {
+    if (!chat_metadata[STATE_KEY]) return;
+    const list = snaps();
+    const i = list.findIndex(x => x.at === at);
+    if (i >= 0) list.splice(i, 1);
+    list.push({ at, state: JSON.parse(JSON.stringify(chat_metadata[STATE_KEY])) });
+    list.sort((a, b) => a.at - b.at);
+    while (list.length > SNAP_MAX) list.shift();
+}
+
+function applySnapshot(snap) {
+    chat_metadata[STATE_KEY] = JSON.parse(JSON.stringify(snap.state));
+    stateEpoch++; // invalidates every in-flight pass dispatched before the rewind
+}
+
+/** Swipe/regenerate: rewind to the pre-tick state of the AI message at `at`. */
+export function restoreSnapshotAt(at) {
+    const list = snaps();
+    const snap = list.find(x => x.at === at);
+    if (!snap) return false;
+    applySnapshot(snap);
+    return true;
+}
+
+/**
+ * After a tail deletion: ticks whose AI message no longer exists (at >= chat
+ * length) are discarded; state rewinds to the pre-tick state of the EARLIEST of
+ * them (= the state after the last surviving AI message).
+ */
+export function restoreAfterDelete(chatLength) {
+    const list = snaps();
+    const gone = list.filter(x => x.at >= chatLength);
+    if (!gone.length) return false;
+    applySnapshot(gone[0]); // list is sorted by `at`
+    chat_metadata[SNAP_KEY] = list.filter(x => x.at < chatLength);
+    return true;
+}
+
+export function clearSnapshots() {
+    delete chat_metadata[SNAP_KEY];
 }
 
 export function saveStateRef() {

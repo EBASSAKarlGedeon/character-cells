@@ -9,7 +9,7 @@ import { SlashCommandParser } from '../../../slash-commands/SlashCommandParser.j
 import { SlashCommand } from '../../../slash-commands/SlashCommand.js';
 import { ARGUMENT_TYPE, SlashCommandArgument, SlashCommandNamedArgument } from '../../../slash-commands/SlashCommandArgument.js';
 import { saveChatDebounced, eventSource, event_types, name1, chat_metadata } from '../../../../script.js';
-import { saveStateRef } from './state.js';
+import { saveStateRef, restoreAfterDelete, clearSnapshots } from './state.js';
 import { getState, hasState, addCell, findCell, setTier, removeCell, addMemory, stateStats, addEvent, getLedger } from './state.js';
 import { ensureRel } from './rel.js';
 import { seedOrigin } from './origin.js';
@@ -238,6 +238,7 @@ function bindPanelEvents($root) {
         }
         resetArmed = false;
         delete chat_metadata[saveStateRef()];
+        clearSnapshots();
         updateInjection();
         refreshPanelIfOpen();
         saveChatDebounced();
@@ -370,9 +371,18 @@ function initEventHandlers() {
     });
     // State-affecting chat events → recompute injection only (redrawing the panel
     // here would wipe in-progress hand edits mid-generation).
-    for (const ev of [event_types.MESSAGE_SENT, event_types.MESSAGE_RECEIVED, event_types.MESSAGE_DELETED, event_types.MESSAGE_SWIPED]) {
+    for (const ev of [event_types.MESSAGE_SENT, event_types.MESSAGE_RECEIVED, event_types.MESSAGE_SWIPED]) {
         eventSource.on(ev, updateInjection);
     }
+    // B3: deleting the tail rewinds the state to before the discarded ticks.
+    eventSource.on(event_types.MESSAGE_DELETED, (chatLength) => {
+        if (hasState() && restoreAfterDelete(Number(chatLength) || 0)) {
+            console.log(`${LOG_PREFIX} message(s) deleted: state rewound`);
+            saveChatDebounced();
+            refreshPanelIfOpen();
+        }
+        updateInjection();
+    });
     // Pre-generation tick (FF5 mechanics port): referee call for the dice, agenda
     // ticking, Chekhov aging + firing, bond cycles, World Sim roll. Hooked on
     // GENERATION_AFTER_COMMANDS because Generate() AWAITS it before assembling
@@ -380,10 +390,12 @@ function initEventHandlers() {
     // writes the scene (that is the entire point: dice decide, prose follows).
     eventSource.makeLast(event_types.GENERATION_AFTER_COMMANDS, (type, options, dryRun) => {
         // Quiet prompts (summaries etc.) and dry runs are not scenes — no tick.
-        if (dryRun || options?.quiet_prompt) return;
-        (async () => {
-            try { await runTick(); } catch (err) { console.warn(`${LOG_PREFIX} tick failed:`, err); }
-            updateInjection();
+        if (dryRun || options?.quiet_prompt || type === 'quiet') return;
+        // RETURN the promise: emit() awaits handler results, so Generate() really
+        // waits for the dice. (Fire-and-forget let the prompt assemble first.)
+        return (async () => {
+            try { await runTick(type); } catch (err) { console.warn(`${LOG_PREFIX} tick failed:`, err); }
+            await updateInjection();
         })();
     });
     // Re-inject before every generation so the block always reflects the current state.

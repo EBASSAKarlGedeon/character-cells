@@ -10,7 +10,7 @@
 
 import { chat, chat_metadata, characters, this_chid, saveChat, openCharacterChat, saveChatDebounced } from '../../../../script.js';
 import { selected_group } from '../../../../scripts/group-chats.js';
-import { getState, getLedger, hasState } from './state.js';
+import { getState, getLedger, hasState, chatToken, sameChat } from './state.js';
 import { buildBookkeeperStateSummary } from './inject.js';
 import { parseCommand, applyCommand, AUTO_CREATE_CAP } from './commands.js';
 import { logScene, applyAutoTier } from './tiers.js';
@@ -145,6 +145,7 @@ export async function backfillLedger(progress = null) {
 
     backfillRunning = true;
     backfillCancel = false;
+    const token = chatToken(); // B1: a backfill belongs to ONE chat
     const BATCH = 4; // messages per call
     const startTime = Date.now();
     let totalCommands = 0;
@@ -171,7 +172,8 @@ export async function backfillLedger(progress = null) {
             if (!text) break;
             batches++;
             try {
-                const reply = await cheapCall(SYSTEM_PROMPT, buildBackfillPrompt(text, seeded), 600);
+                const reply = await cheapCall(SYSTEM_PROMPT, buildBackfillPrompt(text, seeded), 2048);
+                if (!sameChat(token)) { console.warn(`${LOG_PREFIX} backfill aborted: chat changed`); toastr.warning('Backfill stopped — you switched chats. Run it again in the original chat to resume.', 'Character Cells'); return; }
                 const lines = String(reply || '').split('\n').map(l => l.trim()).filter(Boolean);
                 // Two passes: char_add first (cells must exist before other
                 // commands reference them), everything else second.
@@ -217,8 +219,8 @@ export async function backfillLedger(progress = null) {
         console.log(`${LOG_PREFIX} backfill done: ${batches} batches, ${totalCommands} commands, ${tierChanges.length} tier changes`);
     } finally {
         backfillRunning = false;
-        const s = getState();
-        if (s.backfill) { s.backfill.running = false; saveChatDebounced(); }
+        const s = sameChat(token) ? getState() : state; // never touch another chat's state
+        if (s.backfill) { s.backfill.running = false; if (sameChat(token)) saveChatDebounced(); }
     }
 }
 

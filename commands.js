@@ -3,6 +3,7 @@
 // backfill (backfill.js), so the two can never drift apart. Adding a command
 // here makes it available to both.
 
+import { name1 } from '../../../../script.js';
 import { getState, slug, addCell, addEvent, findEvent } from './state.js';
 import { ensureRel, parseRoute, parseCondition, stageFor, TANGLED_STAGES } from './rel.js';
 
@@ -249,6 +250,9 @@ export function applyCommand(cmd, currentTurn, sceneRoles, opts = {}) {
             // into the existing cell), create only when genuinely new.
             const name = val(kv.name ?? parts[0]);
             if (!name) return 'skip: no name';
+            // The persona name is the USER — never an NPC, even if the fixed cell's
+            // name drifted (persona renamed) and fuzzy matching would miss it.
+            if (name1 && slug(name) === slug(name1)) return `skip: ${name} is the user persona`;
             const existing = resolveCell(name);
             if (existing) {
                 if (existing.fixed) return `skip: ${existing.name} is the user cell`;

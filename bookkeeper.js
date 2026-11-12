@@ -9,7 +9,7 @@
 // The command grammar lives in commands.js (shared with the backfill).
 
 import { chat, saveChatDebounced, eventSource, event_types } from '../../../../script.js';
-import { getState, getLedger } from './state.js';
+import { getState, getLedger, chatToken, sameChat } from './state.js';
 import { updateInjection } from './inject.js';
 import { parseCommand, applyCommand, AUTO_CREATE_CAP } from './commands.js';
 import { stageOf, markRelStamps } from './rel.js';
@@ -151,8 +151,9 @@ function buildSceneText() {
     return msgs.join('\n\n');
 }
 
-async function runBookkeeper() {
+async function runBookkeeper(token) {
     if (busy || !settings.bookkeeperEnabled) return;
+    if (!sameChat(token)) { console.warn(`${LOG_PREFIX} bookkeeper skipped: chat changed before the pass started`); return; }
     const sceneText = buildSceneText();
     if (!sceneText) return;
     busy = true;
@@ -161,6 +162,9 @@ async function runBookkeeper() {
         // max_tokens budget — at 400 the completion truncated mid-command and
         // memory_add lines were silently dropped (llm.js note; cf. lorebook-forge).
         const reply = await cheapCall(SYSTEM_PROMPT, buildBookkeeperPrompt(sceneText), 2048);
+        // B1: the chat may have been switched (or state rewound) during the call —
+        // everything below reads LIVE globals, so abort rather than write elsewhere.
+        if (!sameChat(token)) { console.warn(`${LOG_PREFIX} bookkeeper aborted: chat changed during the call — nothing applied`); return; }
         const lines = String(reply || '').split('\n').map(l => l.trim()).filter(Boolean);
         const turn0 = Number(getState().world.turn) || 0;
         const sceneRoles = {};
@@ -206,9 +210,11 @@ async function runBookkeeper() {
         // pre-existing relationship seeded from the card + this scene. One cheap
         // call each, once per cell ever; failures just leave the default.
         for (const id of opts.createdCellIds) {
+            if (!sameChat(token)) { console.warn(`${LOG_PREFIX} origin seeding aborted: chat changed`); return; }
             const cell = getState().cells.find(c => c.id === id);
-            if (cell) await seedOrigin(cell, sceneText);
+            if (cell) await seedOrigin(cell, sceneText, token);
         }
+        if (!sameChat(token)) return;
         if (applied.length) {
             console.log(`${LOG_PREFIX} bookkeeper applied (${applied.length} change(s)):\n  ` + applied.join('\n  '));
             updateInjection();
@@ -231,8 +237,9 @@ async function runBookkeeper() {
 export function initBookkeeperEvents() {
     eventSource.on(event_types.MESSAGE_RECEIVED, () => {
         if (!settings.bookkeeperEnabled) return;
+        const token = chatToken(); // B1: bound to the chat that produced this reply
         setTimeout(() => {
-            runBookkeeper().finally(() => saveChatDebounced());
+            runBookkeeper(token).finally(() => { if (sameChat(token)) saveChatDebounced(); });
         }, settings.bookkeeperDelayMs);
     });
 }

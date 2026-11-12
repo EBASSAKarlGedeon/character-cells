@@ -17,7 +17,7 @@
 
 import { chat, characters } from '../../../../script.js';
 import { loadWorldInfo, convertCharacterBook, world_info } from '../../../world-info.js';
-import { getState } from './state.js';
+import { getState, chatToken, sameChat } from './state.js';
 import { ensureRel, parseRoute, parseCondition, markRelStamps } from './rel.js';
 import { cheapCall } from './llm.js';
 import { LOG_PREFIX } from './config.js';
@@ -113,8 +113,9 @@ function buildSceneText() {
  * @param {string} [sceneOverride] caller-provided introducing-scene text
  * @returns {Promise<boolean>} true when values were seeded
  */
-export async function seedOrigin(cell, sceneOverride = '') {
+export async function seedOrigin(cell, sceneOverride = '', token = chatToken()) {
     if (!cell || cell.fixed) return false;
+    if (!sameChat(token)) return false;
     const state = getState();
     if (!state.cells.includes(cell)) return false;
     const r = ensureRel(cell);
@@ -124,6 +125,7 @@ export async function seedOrigin(cell, sceneOverride = '') {
     const card = findCard(cell.name);
     const cardBlock = cardText(card);
     const lore = await collectLore(card, cell.name).catch(() => '');
+    if (!sameChat(token)) return false; // B1: chat switched while loading lorebooks
     const scene = String(sceneOverride || buildSceneText()).slice(0, 4000);
     const userName = state.cells.find(c => c.fixed)?.name || 'User';
 
@@ -154,7 +156,9 @@ RULES:
 - Omit lines you cannot ground. Silence is correct.`;
 
     try {
-        const reply = await cheapCall(ORIGIN_SYSTEM, prompt, 300);
+        // 2048: thinking models burn reasoning out of the same max_tokens budget.
+        const reply = await cheapCall(ORIGIN_SYSTEM, prompt, 2048);
+        if (!sameChat(token)) { console.warn(`${LOG_PREFIX} origin call for ${cell.name} discarded: chat changed`); return false; }
         const applied = applyOrigin(cell, String(reply || ''));
         markRelStamps();
         console.log(`${LOG_PREFIX} origin call for ${cell.name}: ${applied || 'nothing grounded'}`);

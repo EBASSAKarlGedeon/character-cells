@@ -147,7 +147,9 @@ function pushWorldSections(L, world, opts = {}) {
     // never off-screen shifts (StandardTable categories) — those don't exist for them.
     const ambient = !opts.perspective || ws.table !== 'standard';
     if (ws && Number(ws.turn) === Number(world.turn) && ambient) {
-        L.push(`WORLD SIM: This turn's roll: ${ws.event} — ${ws.desc} (improvise the specifics naturally; never mention the roll)`);
+        // Category ONLY — the canned desc is panel text; handed to the narrator it
+        // gets copied verbatim ("Lights flicker, window rattles…").
+        L.push(`WORLD SIM: This turn's off-screen/ambient development is of type ${ws.event}. Invent a fresh, concrete detail that fits THIS scene and setting — do not reuse stock phrasing, and never mention the roll or the category.`);
     }
 
     // Chekhov bullets that FIRED this turn: the narrator must weave them in now.
