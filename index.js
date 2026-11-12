@@ -19,7 +19,7 @@ import { setDigestInfo } from './render.js';
 import { initChatTable, renderChatTable } from './chat-table.js';
 import { initLedgerBrowser } from './ledger-browser.js';
 import { updateInjection, setInjectionEnabled } from './inject.js';
-import { initBookkeeper, initBookkeeperEvents, isBookkeeperEnabled, setBookkeeperEnabled } from './bookkeeper.js';
+import { initBookkeeper, initBookkeeperEvents, isBookkeeperEnabled, setBookkeeperEnabled, runRepairPass } from './bookkeeper.js';
 import { pinTier, unpinTier, isAutoTierEnabled, setAutoTierEnabled, applyAutoTier } from './tiers.js';
 import { getSettings, persistSettings } from './settings.js';
 import { buildPerspectiveBlock, previewBlock, resolvePov } from './inject.js';
@@ -248,6 +248,20 @@ function bindPanelEvents($root) {
             toastr.info(`Rebuilt ${n} digest(s).`, 'Character Cells');
         } finally {
             $(this).prop('disabled', false).text('Rebuild digests');
+            refreshPanelIfOpen();
+        }
+    });
+
+    // Repair internal states: one bookkeeper audit call (bookkeeper.runRepairPass)
+    // — fills missed drawers / corrects drifted values WITHOUT a reset.
+    $root.on('click.cc', '[data-cc-repair]', async function () {
+        const $btn = $(this);
+        $btn.prop('disabled', true).text('Repairing…');
+        try {
+            const n = await runRepairPass();
+            toastr.success(n ? `Repair applied ${n} state change(s).` : 'Repair ran: state already consistent (no changes).', 'Character Cells');
+        } finally {
+            $btn.prop('disabled', false).text('Repair internal states');
             refreshPanelIfOpen();
         }
     });

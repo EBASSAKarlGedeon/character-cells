@@ -9,7 +9,7 @@
 // The command grammar lives in commands.js (shared with the backfill).
 
 import { chat, saveChatDebounced, eventSource, event_types } from '../../../../script.js';
-import { getState, getLedger, chatToken, sameChat } from './state.js';
+import { getState, getLedger, chatToken, sameChat, hasState } from './state.js';
 import { updateInjection } from './inject.js';
 import { parseCommand, applyCommand, AUTO_CREATE_CAP } from './commands.js';
 import { stageOf, markRelStamps } from './rel.js';
@@ -232,4 +232,91 @@ export function initBookkeeperEvents() {
             runBookkeeper(token).finally(() => { if (sameChat(token)) saveChatDebounced(); });
         }, settings.bookkeeperDelayMs);
     });
+}
+
+// ---------------------------------------------------------------- repair pass
+
+let repairing = false;
+
+/**
+ * Repair pass: a manual, non-scoped bookkeeper call. The model gets the SAME
+ * system prompt and grammar as the live bookkeeper but NO scene — instead it is
+ * told the state may have drifted and must audit and fix it against the cards
+ * and lorebook (and the recent chat for context). Uses the full command
+ * grammar, so it can fill missed drawers, correct bad values, emit rel lines…
+ * Never fatal; button-level guard against concurrent runs.
+ * @returns {Promise<number>} applied change count, 0 on failure/no-changes
+ */
+export async function runRepairPass() {
+    if (repairing) { toastr.warning('A repair pass is already running.', 'Character Cells'); return 0; }
+    if (!hasState()) { toastr.info('No state to repair in this chat.', 'Character Cells'); return 0; }
+    repairing = true;
+    const token = chatToken(); // B1: the repair belongs to THIS chat
+    try {
+        // Recent history gives the auditor context the state alone lacks; the
+        // last 6 non-system messages, uncapped text (the user pays tokens, not us).
+        const msgs = [];
+        for (let i = chat.length - 1; i >= 0 && msgs.length < 6; i--) {
+            const m = chat[i];
+            if (m.is_system) continue;
+            msgs.unshift(`${m.is_user ? getState().cells.find(c => c.fixed)?.name || 'User' : 'AI'}: ${String(m.mes || '').trim()}`);
+        }
+        const history = msgs.join('\n\n');
+        const turn0 = Number(getState().world.turn) || 0;
+        const reply = await cheapCall(SYSTEM_PROMPT, buildBookkeeperPrompt(
+            `NOT A NEW SCENE — AUDIT PASS. The tracked state below may be stale, incomplete or wrong.
+
+RECENT HISTORY (context — the last exchanges of this chat):
+${history}
+
+Your job: re-derive what the state SHOULD be right now from the history, the cards and the lorebook, compare with CURRENT STATE, and emit ONLY the commands that repair the difference — fill missed drawers (memories, agendas, status, inv, plants, factions, quests, rel fields…), correct values that drifted, remove nothing silently (silence keeps a value). If the state is already correct, output nothing.
+
+Rules for this pass:
+- The RECENT HISTORY is the evidence window: it is NOT a new scene to bookkeep — do not re-record events already in CURRENT STATE (use recent_events to check).
+- The same grammar and rules apply (completeness, REL RULES, format traps).
+- Cell ids MUST come from CURRENT STATE.`,
+            await buildLoreContext()), 4096);
+        if (!sameChat(token)) { console.warn(`${LOG_PREFIX} repair aborted: chat changed during the call — nothing applied`); return 0; }
+        const lines = String(reply || '').split('\n').map(l => l.trim()).filter(Boolean);
+        const cmds = lines.map(parseCommand).filter(Boolean);
+        const creates = [], rest = [];
+        for (const cmd of cmds) (cmd.op === 'char_add' ? creates : rest).push(cmd);
+        const sceneRoles = {};
+        const opts = { relCounts: {}, createdCellIds: [] };
+        const applied = [];
+        let created = 0;
+        for (const cmd of creates) {
+            if (!settings.bookkeeperAutoCells || created >= AUTO_CREATE_CAP) { applied.push('skip: char_add cap'); continue; }
+            try {
+                const r = applyCommand(cmd, turn0, sceneRoles, opts);
+                if (r && r.startsWith('char_add:') && !r.includes('already tracked')) created++;
+                applied.push(r);
+            } catch (e) { console.warn(`${LOG_PREFIX} repair command failed:`, cmd.op, e); }
+        }
+        for (const cmd of rest) {
+            try { applied.push(applyCommand(cmd, turn0, sceneRoles, opts)); }
+            catch (e) { console.warn(`${LOG_PREFIX} repair pass command failed:`, cmd.op, e); }
+        }
+        if (Object.keys(sceneRoles).length) {
+            // An audit must not rewrite the present set from a partial window —
+            // presence is live-play drift authority, not the repair's job.
+            opts.createdCellIds.length = 0; // origin seeding: not a birth pass
+            // note: sceneRoles deliberately NOT written to s.present here
+        }
+        const changes = applied.filter(r => r && !String(r).startsWith('skip') && r !== 'dup');
+        if (changes.length) {
+            markRelStamps();
+            updateInjection();
+            renderChatTable();
+            saveChatDebounced();
+        }
+        console.log(`${LOG_PREFIX} repair pass: ${changes.length} change(s) applied${changes.length ? ':\n  ' + changes.join('\n  ') : ''}`);
+        return changes.length;
+    } catch (err) {
+        console.warn(`${LOG_PREFIX} repair pass failed:`, err);
+        toastr.warning('Repair pass failed — state unchanged.', 'Character Cells');
+        return 0;
+    } finally {
+        repairing = false;
+    }
 }

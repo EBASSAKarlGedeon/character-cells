@@ -58,6 +58,10 @@ function toolsSection(state) {
       <div class="cc-tools-note">Re-summarizes old (pre-hot-window) memories per character. The ledger is never touched — digests are cached views. ${ds}</div>
     </div>
     <div class="cc-tools-row">
+      <button class="menu_button" data-cc-repair="1">Repair internal states</button>
+      <div class="cc-tools-note">One bookkeeper audit call: compares the tracked state against the cards, the lorebook and the last 6 messages, and emits only the commands that fix drift — fills missed drawers, corrects bad values. Use whenever the state looks stale and you don't want to reset it.</div>
+    </div>
+    <div class="cc-tools-row">
       <button class="menu_button" data-cc-reset="1">Reset internal states</button>
       <div class="cc-tools-note">Wipes ALL tracked state for THIS chat — cells, ledger, memories, turn counter, dice, world sim, digests — and starts from zero. Chat messages are untouched. Cannot be undone.</div>
     </div>
