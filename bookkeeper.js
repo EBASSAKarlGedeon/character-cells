@@ -79,6 +79,12 @@ export function buildStateSummary() {
     if ((world.chekhov || []).length) {
         out.chekhov = world.chekhov.map(c => ({ id: c.id, text: c.text, status: c.status || 'active' }));
     }
+    if ((world.factions || []).length) {
+        out.factions = world.factions.map(f => ({
+            name: f.name, goal: f.goal, intel: f.intel, fibs: f.fibs,
+            state: f.fstate, conflict: f.conflict, relations: f.relations,
+        }));
+    }
     if ((world.quests || []).length) out.quests = world.quests;
     if ((world.notes || []).length) {
         out.notes = world.notes.map(n => ({ id: n.id, type: n.type, text: n.text }));
@@ -99,7 +105,8 @@ quest_add(type=Main|Side, name="...", progress="...", reward="...")          # c
 - NEVER char_add: the user; groups/crowds/guards ("the villagers" is not a character); someone only mentioned by name who takes no part; anyone already in CURRENT STATE (use their existing id instead).
 - desc: ONE line, strictly from what the scene shows (appearance, role, behavior). Never invent backstory.
 - At most ${AUTO_CREATE_CAP} new characters per scene; prefer those with dialogue.
-- faction_add / quest_add: only when the scene establishes one or materially changes it; update by reusing the exact existing name; omit fields you don't know. Do not restate unchanged factions/quests.` : '';
+- FACTIONS are any named collective with shared interests that matters to the story: a FAMILY or household ("Ichimura Family" — siblings, parents, in-laws), a friend group, gang, club, company, school, guild, kingdom, police/crime outfit. When a named character is introduced with family, a crew or an employer, emit faction_add for that group right away (it does not need dramatic events) — name it plainly ("<Surname> Family", "<Org name>"). Fields, scene-derived only, omit what you don't know: goal (what the group wants; "status quo" is fine), intel (what the group collectively knows), state (cohesion: united / fractured / at war...), conflict (internal or external friction, e.g. "Mako vs Kanae over Hiro"), relations (stance toward other factions). Never restate an unchanged faction; to update, reuse the exact name from CURRENT STATE's factions and send only changed fields. Factions are NOT characters — never char_add a group.
+- quest_add: only when the scene establishes one or materially changes it; update by reusing the exact existing name; omit fields you don't know. Do not restate unchanged quests.` : '';
     return `CURRENT STATE (JSON):
 ${buildStateSummary()}
 

@@ -61,7 +61,7 @@ export function makeCell(name, tier = 'minor', fixed = false) {
 export function makeWorldState() {
     return {
         notes: [],              // [{ id, type: 'R'|'T'|'D', text }] — GM notebook entries
-        factions: [],           // [{ id, name, goal, intel, fibs, fstate, conflict, relations }]
+        factions: [],           // [{ id, name, goal, intel, fibs, fstate, conflict, relations, witnesses: [cellId] }]
         quests: [],             // [{ id, type: 'Main'|'Side', name, progress, reward }]
         chekhov: [],            // [{ id, text, status: active|locked|fired, weight, age, depends, secret }]
         roll: {},               // { task, dc, user, npc, delta, outcome } — last DND sim roll
@@ -91,6 +91,20 @@ export function makeEvent(what, witnesses, turn, importance = 1) {
 
 export function slug(name) {
     return String(name).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'unnamed';
+}
+
+/**
+ * A4: classify an agenda goal ONCE, when the agenda is created/edited, into the
+ * kind that decides its completion effect ('rest' | 'reconcile' | 'research' |
+ * 'other'). Whole-word matches only ("forest" is not "rest"). The tick engine
+ * switches on the stored kind; refreshed mundane agendas are stamped 'mundane'.
+ */
+export function classifyAgendaKind(goal) {
+    const g = String(goal || '').toLowerCase();
+    if (/\b(rest|recover\w*|sleep\w*|heal\w*)\b/.test(g)) return 'rest';
+    if (/\b(reconcil\w*|apolog\w*|make up)\b/.test(g)) return 'reconcile';
+    if (/\b(research\w*|investigat\w*|study|search\w*)\b/.test(g)) return 'research';
+    return 'other';
 }
 
 /** Get (or lazily create) this chat's state object. Mutating the return value mutates the chat. */
@@ -206,7 +220,21 @@ export function setTier(id, tier) {
 export function removeCell(id) {
     const s = getState();
     const i = s.cells.findIndex(c => c.id === id);
-    if (i >= 0 && !s.cells[i].fixed) s.cells.splice(i, 1); // user cell is protected
+    if (i < 0 || s.cells[i].fixed) return; // user cell is protected
+    s.cells.splice(i, 1);
+    // B12: witnesses are keyed by the cell id (a slug). Purge the removed id from
+    // every witness list, or a character re-added later under the same name
+    // would silently inherit all of the old one's knowledge.
+    for (const e of (Array.isArray(s.ledger) ? s.ledger : [])) {
+        if (Array.isArray(e.witnesses)) e.witnesses = e.witnesses.filter(w => w !== id);
+    }
+    for (const c of s.cells) {
+        for (const m of (c.memories || [])) if (Array.isArray(m.witnesses)) m.witnesses = m.witnesses.filter(w => w !== id);
+    }
+    if (Array.isArray(s.present)) s.present = s.present.filter(p => p !== id);
+    if (s.digests) delete s.digests[id];
+    if (s.digestRetry) delete s.digestRetry[id];
+    if (s.povId === id) delete s.povId;
 }
 
 /** Add a memory to a cell's known list (dedup by text within the same cell). */

@@ -10,35 +10,17 @@
 
 import { chat, chat_metadata, characters, this_chid, saveChat, openCharacterChat, saveChatDebounced } from '../../../../script.js';
 import { selected_group } from '../../../../scripts/group-chats.js';
-import { getState, getLedger, hasState, chatToken, sameChat } from './state.js';
+import { getState, getLedger, hasState, chatToken, sameChat, makeWorldState } from './state.js';
+import { stripInternalStates, countStateBlocks } from './strip.js';
+
+export { stripInternalStates }; // the strip logic lives in strip.js (pure → unit-testable in Node)
 import { buildBookkeeperStateSummary } from './inject.js';
 import { parseCommand, applyCommand, AUTO_CREATE_CAP } from './commands.js';
 import { logScene, applyAutoTier } from './tiers.js';
 import { cheapCall } from './llm.js';
 import { LOG_PREFIX } from './config.js';
 
-// ================================================================ 1. strip-copy
-
-/**
- * Remove every FF5 internal-states block from a message text. Handles the
- * GFX-wrapped and bare forms; leaves prose, dialogue, the time/location
- * header, and non-state GFX (phone screens, letters) untouched.
- * Exported for tests.
- */
-export function stripInternalStates(text) {
-    let s = String(text || '');
-    // Models sometimes omit the closing </internal_states> tag (block ends at
-    // <!-- GFX_END --> or end of message) — accept all three block endings.
-    const blockRe = /<internal_states[\s\S]*?(?:<\/internal_states>|(?=<!-- GFX_END -->)|$)/g;
-    s = s.replace(/<!-- GFX_START -->\s*<internal_states[\s\S]*?(?:<\/internal_states>|(?=<!-- GFX_END -->)|$)\s*<!-- GFX_END -->/g, '');
-    s = s.replace(blockRe, '');
-    s = s.replace(/\n{3,}/g, '\n\n').trim();
-    return s;
-}
-
-function countStateBlocks(text) {
-    return (String(text || '').match(/<internal_states/g) || []).length;
-}
+// ================================================================ 1. strip-copy (block stripping: strip.js)
 
 /** Create a cleaned copy of the current chat and switch to it. */
 export async function cleanCopyChat() {
@@ -56,6 +38,7 @@ export async function cleanCopyChat() {
     const newName = `${srcName} (cells-clean) ${stamp}.jsonl`;
 
     let removed = 0;
+    let removedSwipes = 0; // C9: blocks inside swipes are counted and stripped too
     const cleaned = chat.map(m => {
         const c = { ...m };
         if (c.mes && countStateBlocks(c.mes)) {
@@ -63,32 +46,36 @@ export async function cleanCopyChat() {
             c.mes = stripInternalStates(c.mes);
         }
         if (Array.isArray(c.swipes) && c.swipes.some(s => countStateBlocks(s))) {
+            removedSwipes += c.swipes.reduce((n, s) => n + countStateBlocks(s), 0);
             c.swipes = c.swipes.map(stripInternalStates);
         }
         return c;
     });
-    if (!removed) {
+    if (!removed && !removedSwipes) {
         toastr.info('No internal-states blocks found in this chat — nothing to clean.', 'Character Cells');
         return;
     }
 
-    // The copy CARRIES OVER existing cell state when there is one (slice 8: the
-    // Import button seeds it first — resetting here would lose the import; the
-    // HTML blocks are stripped from the copy's text, so import must run before
-    // cleaning). Only the backfill progress resets: it's a fresh rebuild here.
+    // C10: the copy carries the cell state over ONLY for an IMPORTED chat (slice 8: the
+    // Import button seeds exact final values first — resetting would lose them; the HTML
+    // blocks are stripped from the copy's text, so import must run before cleaning; the
+    // backfill is then SEEDED = ledger-only). A chat that was never imported gets a FRESH
+    // state (cells, ledger, world): the backfill replays the whole history with accumulating
+    // ops (bond, inventory…), which would double-count on top of live-play state.
+    // Backfill progress resets either way.
     let carriedState = null;
-    if (hasState()) {
+    if (hasState() && chat_metadata.character_cells.imported) {
         carriedState = JSON.parse(JSON.stringify(chat_metadata.character_cells));
         carriedState.backfill = { running: false };
         delete carriedState.backfill.progress;
     }
     const metadata = { ...chat_metadata, character_cells: carriedState || makeFreshState() };
 
-    toastr.info(`Cleaning ${removed} state block(s)…`, 'Character Cells');
+    toastr.info(`Cleaning ${removed + removedSwipes} state block(s)…`, 'Character Cells');
     await saveChat({ chatName: newName, withMetadata: metadata, chatData: cleaned, force: true });
     await openCharacterChat(newName);
-    toastr.success(`Clean copy created (${removed} state block(s) removed). Now run the backfill from the panel.`, 'Character Cells', { timeOut: 8000 });
-    console.log(`${LOG_PREFIX} strip-copy: ${removed} state block(s) removed → ${newName}`);
+    toastr.success(`Clean copy created (${removed} state block(s) removed from messages, ${removedSwipes} from swipes). Now run the backfill from the panel.`, 'Character Cells', { timeOut: 8000 });
+    console.log(`${LOG_PREFIX} strip-copy: ${removed} message + ${removedSwipes} swipe state block(s) removed → ${newName}`);
 }
 
 function makeFreshState() {
@@ -126,7 +113,9 @@ function batchSceneText(startIdx, batchSize) {
 /**
  * Backfill the ledger from the chat's full history, batch by batch.
  * Progress is checkpointed into the state, so a cancelled run resumes where
- * it stopped. A completed run is marked `backfill.done` and not repeated.
+ * it stopped (including the virtual turn counter). A FAILED batch is recorded in
+ * `backfill.failed` and retried first on the next run; `backfill.done` is set
+ * only when no batch failed, and a done run is not repeated.
  */
 export async function backfillLedger(progress = null) {
     if (backfillRunning) {
@@ -143,6 +132,28 @@ export async function backfillLedger(progress = null) {
         return;
     }
 
+    // SEEDED MODE (slice 8): the state was imported from a final internal-states
+    // block, so the backfill does LEDGER work only — accumulating commands are
+    // stripped from the grammar AND filtered here, so imported values are never
+    // double-counted.
+    const seeded = !!state.imported;
+    state.backfill = state.backfill || {};
+    // C10 (DECIDED): a NON-seeded backfill replays the whole history including accumulating
+    // ops (bond, inventory…). On top of live-play state that double-counts, so a fresh run
+    // starts from a clean slate — cells, ledger and world are reset first. (The strip-copy
+    // already hands over a fresh state; this covers running the backfill directly on a
+    // chat that still holds live state, so it asks first.)
+    const resuming = Number(state.backfill.progress) > 0 || (Array.isArray(state.backfill.failed) && state.backfill.failed.length > 0);
+    if (!seeded && !resuming) {
+        const live = state.cells.some(c => !c.fixed) || (Array.isArray(state.ledger) && state.ledger.length > 0) || Number(state.world?.turn) > 0;
+        if (live) {
+            const ok = typeof window !== 'undefined' && typeof window.confirm === 'function'
+                && window.confirm('This chat already has tracked state (cells / ledger / turn). A backfill replays the WHOLE history and would double-count on top of it.\n\nReset cells, ledger and world first, then backfill?');
+            if (!ok) { toastr.info('Backfill not started — existing state kept.', 'Character Cells'); return; }
+            resetStateForReplay(state);
+        }
+    }
+
     backfillRunning = true;
     backfillCancel = false;
     const token = chatToken(); // B1: a backfill belongs to ONE chat
@@ -150,78 +161,119 @@ export async function backfillLedger(progress = null) {
     const startTime = Date.now();
     let totalCommands = 0;
     let batches = 0;
-    state.backfill = state.backfill || {};
     state.backfill.running = true;
-    const sceneRoles = {};
-    // SEEDED MODE (slice 8): the state was imported from a final internal-states
-    // block, so the backfill does LEDGER work only — accumulating commands are
-    // stripped from the grammar AND filtered here, so imported values are never
-    // double-counted.
-    const seeded = !!state.imported;
     // Turn accounting fix (all backfills): events stamp with a LOCAL virtual
     // turn counter incremented by turn() commands — historical turns instead
-    // of everything stamped with the current world.turn.
-    let virtualTurn = 0;
+    // of everything stamped with the current world.turn. C4: persisted at every
+    // checkpoint and restored on resume, so a resumed run continues the clock.
+    let virtualTurn = Number(state.backfill.virtualTurn) || 0;
+    // C1: batches that failed earlier are retried FIRST; failures in this run are recorded.
+    const queue = (Array.isArray(state.backfill.failed) ? state.backfill.failed : []).map(Number).filter(Number.isFinite);
+    const pendingFailed = new Set(queue);
+    const stopped = () => {
+        console.warn(`${LOG_PREFIX} backfill aborted: chat changed`);
+        toastr.warning('Backfill stopped — you switched chats. Run it again in the original chat to resume.', 'Character Cells');
+    };
 
     try {
         let i = Number(state.backfill.progress) || 0;
-        if (i > 0) toastr.info(`Resuming backfill at message ${i + 1}/${chat.length}…`, 'Character Cells');
+        if (i > 0 || queue.length) toastr.info(`Resuming backfill at message ${i + 1}/${chat.length}${queue.length ? ` (+${queue.length} failed batch(es) to retry)` : ''}…`, 'Character Cells');
 
-        while (i < chat.length && !backfillCancel) {
-            const { text, endIdx } = batchSceneText(i, BATCH);
-            if (!text) break;
+        while (!backfillCancel) {
+            if (!sameChat(token)) { stopped(); return; } // C3: never apply/save into another chat
+            const isRetry = queue.length > 0;
+            if (!isRetry && i >= chat.length) break;
+            const start = isRetry ? queue.shift() : i;
+            const { text, endIdx } = batchSceneText(start, BATCH);
+            if (!text) { if (isRetry) { pendingFailed.delete(start); continue; } break; }
             batches++;
+            const sceneRoles = {}; // C5: per batch — a stale role map would be logged again for every later batch
+            let ok = false;
             try {
                 const reply = await cheapCall(SYSTEM_PROMPT, buildBackfillPrompt(text, seeded), 2048);
-                if (!sameChat(token)) { console.warn(`${LOG_PREFIX} backfill aborted: chat changed`); toastr.warning('Backfill stopped — you switched chats. Run it again in the original chat to resume.', 'Character Cells'); return; }
+                if (!sameChat(token)) { stopped(); return; }
                 const lines = String(reply || '').split('\n').map(l => l.trim()).filter(Boolean);
                 // Two passes: char_add first (cells must exist before other
                 // commands reference them), everything else second.
-                const cmds = lines.map(parseCommand).filter(c => c && (!seeded || SEEDED_OPS.has(c.op)));
+                const cmds = lines.map(line => ({ line, cmd: parseCommand(line) })).filter(x => x.cmd && (!seeded || SEEDED_OPS.has(x.cmd.op)));
                 const creates = [], rest = [];
-                for (const cmd of cmds) (cmd.op === 'char_add' ? creates : rest).push(cmd);
+                for (const x of cmds) (x.cmd.op === 'char_add' ? creates : rest).push(x);
                 let applied = 0;
                 let created = 0;
-                for (const cmd of [...creates, ...rest]) {
+                for (const { line, cmd } of [...creates, ...rest]) {
                     if (cmd.op === 'char_add' && created >= AUTO_CREATE_CAP) continue;
                     try {
                         const r = applyCommand(cmd, virtualTurn, sceneRoles, { onTurn: () => { virtualTurn++; } });
                         if (r && r.startsWith('char_add:') && !r.includes('already tracked')) created++;
                         if (r && !String(r).startsWith('skip') && r !== 'dup') applied++;
-                    } catch { /* malformed line — skip */ }
+                    } catch (e) {
+                        console.warn(`${LOG_PREFIX} backfill: command failed (msg ${start}): ${line}`, e); // C2: never swallow silently
+                    }
                 }
                 totalCommands += applied;
                 if (Object.keys(sceneRoles).length) logScene({ ...sceneRoles });
+                ok = true;
             } catch (err) {
-                console.warn(`${LOG_PREFIX} backfill batch failed at msg ${i}:`, err);
+                if (!sameChat(token)) { stopped(); return; } // C3: catch path too — skip the save
+                console.warn(`${LOG_PREFIX} backfill batch failed at msg ${start}:`, err);
             }
-            state.backfill.progress = endIdx;
+            if (ok) pendingFailed.delete(start); else pendingFailed.add(start); // C1: recorded, never silently skipped
+            if (!isRetry) { state.backfill.progress = endIdx; i = endIdx; }
+            state.backfill.virtualTurn = virtualTurn; // C4
+            state.backfill.failed = [...pendingFailed];
             saveChatDebounced();
-            progress?.(`Batch ${batches} — message ${endIdx}/${chat.length} (${totalCommands} commands)`);
-            i = endIdx;
+            progress?.(`Batch ${batches} — message ${Math.min(i, chat.length)}/${chat.length} (${totalCommands} commands${pendingFailed.size ? `, ${pendingFailed.size} failed` : ''})`);
         }
 
         state.backfill.running = false;
+        state.backfill.failed = [...pendingFailed];
         if (backfillCancel) {
+            saveChatDebounced();
             toastr.info(`Backfill cancelled at message ${state.backfill.progress}/${chat.length}. Run it again to resume.`, 'Character Cells');
+            return;
+        }
+        if (pendingFailed.size) {
+            // C1: never `done` with a failed batch — the next run retries exactly those.
+            saveChatDebounced();
+            toastr.warning(`Backfill finished with ${pendingFailed.size} FAILED batch(es) (${batches} run, ${totalCommands} state changes) — NOT marked done. Run it again to retry just those.`, 'Character Cells', { timeOut: 12000 });
+            console.warn(`${LOG_PREFIX} backfill incomplete: failed batch start(s) ${[...pendingFailed].join(', ')}`);
             return;
         }
         state.backfill.done = true;
         delete state.backfill.progress;
+        delete state.backfill.failed;
+        delete state.backfill.virtualTurn;
+        // C7 (DECIDED): sync the world clock to the replayed history. A fresh (reset) world
+        // lands exactly on the final virtual turn; a SEEDED chat keeps its imported turn
+        // unless the replay ran further — the hot window / digests use world.turn.
+        state.world.turn = Math.max(Number(state.world.turn) || 0, virtualTurn);
         saveChatDebounced();
         // Free bonus: seed tier detection from the full participation history.
         const tierChanges = applyAutoTier();
         const elapsed = ((Date.now() - startTime) / 1000).toFixed(0);
         toastr.success(
-            `Backfill complete: ${batches} batches, ${totalCommands} state changes` +
-            `${tierChanges.length ? `, tiers: ${tierChanges.join('; ')}` : ''} — ${elapsed}s. Ledger: ${getLedger().length} events.`,
+            `Backfill complete: ${batches} batches (0 failed), ${totalCommands} state changes` +
+            `${tierChanges.length ? `, tiers: ${tierChanges.join('; ')}` : ''} — ${elapsed}s. Ledger: ${getLedger().length} events, turn ${state.world.turn}.`,
             'Character Cells', { timeOut: 10000 });
-        console.log(`${LOG_PREFIX} backfill done: ${batches} batches, ${totalCommands} commands, ${tierChanges.length} tier changes`);
+        console.log(`${LOG_PREFIX} backfill done: ${batches} batches, ${totalCommands} commands, ${tierChanges.length} tier changes, world.turn → ${state.world.turn}`);
     } finally {
         backfillRunning = false;
         const s = sameChat(token) ? getState() : state; // never touch another chat's state
         if (s.backfill) { s.backfill.running = false; if (sameChat(token)) saveChatDebounced(); }
     }
+}
+
+/** C10: wipe everything the replay rebuilds (cells, ledger, world, tier history, digests). Keeps backfill/import bookkeeping. */
+function resetStateForReplay(s) {
+    s.world = makeWorldState();
+    s.cells = [];
+    s.ledger = [];
+    s.tierLog = [];
+    s.digests = {};
+    s.digestRetry = {};
+    delete s.present;
+    delete s.povId;
+    getState(); // re-adds the user cell on the same state object
 }
 
 export function cancelBackfill() { backfillCancel = true; }

@@ -354,3 +354,102 @@
 .cc-chat-table th { opacity: 0.7; font-weight: 600; }
 .cc-chat-table small { opacity: 0.6; }
 .cc-chat-table .cc-ct-lines { margin-top: 6px; opacity: 0.9; }
+
+/* =====================================================================
+   UI rework (v2) — cards + field grids, no horizontal overflow, stacked
+   ledger rows. Overrides the earlier dense-line rules above.
+   ===================================================================== */
+#cc_dialog .cc-dialog-inner { overflow-x: hidden; box-sizing: border-box; }
+#cc_dialog .cc-panel { min-width: 0; }
+#cc_dialog .cc-sec-body { min-width: 0; overflow-wrap: anywhere; padding: 10px 12px; }
+#cc_dialog .cc-teal .cc-sec-body,
+#cc_dialog .cc-orange .cc-sec-body { padding-left: 12px; }
+#cc_dialog .cc-sec { margin: 6px 0; }
+#cc_dialog .cc-sec > summary { padding: 9px 12px; }
+#cc_dialog .cc-sec > summary::after { content: '▸'; margin-left: auto; opacity: 0.6; transition: transform 0.15s; }
+#cc_dialog .cc-sec[open] > summary::after { transform: rotate(90deg); }
+
+/* editable values — visible, pill-like, never collapse to nothing */
+#cc_dialog .cc-ed {
+    display: inline-block;
+    min-width: 3ch;
+    max-width: 100%;
+    padding: 0 4px;
+    border-radius: 4px;
+    border-bottom: 1px dashed rgba(205, 214, 244, 0.22);
+    cursor: text;
+    vertical-align: baseline;
+    overflow-wrap: anywhere;
+}
+#cc_dialog .cc-ed:empty::before { content: attr(data-ph); color: #6c7086; font-style: italic; }
+#cc_dialog .cc-ed:focus:empty::before { content: ''; }
+#cc_dialog .cc-ed:hover { background: rgba(205, 214, 244, 0.06); }
+
+/* character / faction card */
+#cc_dialog .cc-card {
+    background: rgba(24, 24, 37, 0.75);
+    border: 1px solid #313244;
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin-bottom: 10px;
+}
+#cc_dialog .cc-card-head,
+#cc_dialog .cc-rel-head {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+    margin-bottom: 8px;
+}
+#cc_dialog .cc-card-name { font-weight: 700; font-size: 1.05em; color: #f9e2af; letter-spacing: 0.3px; text-transform: none; }
+#cc_dialog .cc-card-tools { margin-left: auto; display: flex; align-items: center; gap: 4px; }
+#cc_dialog .cc-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: 8px 14px;
+}
+#cc_dialog .cc-f { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
+#cc_dialog .cc-f-wide { grid-column: 1 / -1; }
+#cc_dialog .cc-fl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.8px; color: #7f849c; }
+#cc_dialog .cc-fv { color: #cdd6f4; min-width: 0; }
+#cc_dialog .cc-sep { color: #6c7086; }
+
+/* relationship card */
+#cc_dialog .cc-rel-card { padding: 12px; margin-bottom: 10px; }
+#cc_dialog .cc-rel-head { text-transform: none; letter-spacing: 0; }
+#cc_dialog .cc-rel-head .cc-arrow { color: #74c7ec; margin: 0 2px; }
+#cc_dialog .cc-chip {
+    background: rgba(0, 0, 0, 0.35); border: 1px solid #313244; border-radius: 10px;
+    padding: 1px 6px; font-size: 0.85em; color: #f9e2af; font-weight: normal;
+}
+#cc_dialog .cc-rel-ladder { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 10px; word-spacing: 0; }
+#cc_dialog .cc-step {
+    font-size: 0.78em; padding: 1px 7px; border-radius: 9px;
+    background: rgba(255, 255, 255, 0.04); color: #6c7086; border: 1px solid transparent;
+}
+#cc_dialog .cc-step.cc-rel-here { color: #1e1e2e; background: #f9e2af; font-weight: 700; text-shadow: none; }
+#cc_dialog .cc-rel-grid { margin-top: 10px; }
+#cc_dialog .cc-rel-keepsake-text { margin-top: 6px; }
+#cc_dialog .cc-bond-row { gap: 10px; }
+#cc_dialog .cc-bond-row + .cc-bond-row { margin-top: 7px; }
+#cc_dialog .cc-bond-label { width: 92px; white-space: nowrap; }
+#cc_dialog .cc-track { height: 10px; border-radius: 5px; }
+#cc_dialog .cc-fill { border-radius: 5px; }
+
+/* one-line items (quests, notes, thoughts) wrap instead of overflowing */
+#cc_dialog .cc-item { flex-wrap: wrap; min-width: 0; }
+#cc_dialog .cc-row { flex-wrap: nowrap; }
+#cc_dialog .cc-row .cc-new { min-width: 0; }
+
+/* ---- Event ledger rows: stacked, so a narrow drawer can never squeeze the text into a column ---- */
+.cc-ledger-list { max-height: 420px; }
+.cc-ledger-row { display: block; padding: 6px 4px; }
+.cc-ledger-top { display: flex; align-items: center; gap: 6px; margin-bottom: 2px; }
+.cc-ledger-top .cc-ledger-del { margin-left: auto; }
+.cc-ledger-what { display: block; flex: none; line-height: 1.4; overflow-wrap: anywhere; word-break: normal; }
+.cc-ledger-meta { display: block; margin-top: 3px; opacity: 0.75; overflow-wrap: anywhere; }
+.cc-ledger-row [contenteditable] { border-bottom: 1px dashed transparent; outline: none; }
+.cc-ledger-row [contenteditable]:hover { border-bottom-color: rgba(255, 255, 255, 0.3); }
+.cc-ledger-row [contenteditable]:focus { border-bottom-color: #89b4fa; background: rgba(137, 180, 250, 0.1); }
+.cc-ledger-filters { flex-wrap: wrap; }
+.cc-ledger-filters input { flex: 1 1 100%; }
+.cc-ledger-filters select { flex: 1 1 45%; }
+.cc-ledger-add { flex-wrap: wrap; }
+.cc-ledger-add input#cc_ledger_add_what, .cc-ledger-add input#cc_ledger_add_who { flex: 1 1 100%; }

@@ -32,6 +32,34 @@ function ageLabel(ev, currentTurn) {
     return 'cold';
 }
 
+
+function escHtml(s) {
+    return String(s ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
+}
+
+/** Rows for the visible events — stacked layout (id/age/delete on top, text, then meta). */
+function rowsHtml(shown, ledgerTotal, currentTurn) {
+    if (!shown.length) return '<div class="cc-ledger-none">No events match. (Ledger total: ' + ledgerTotal + ')</div>';
+    return shown.map(e => {
+        const who = (e.witnesses || []).map(w => findCell(w)?.name || w).join(', ') || 'nobody';
+        const age = ageLabel(e, currentTurn);
+        return `
+      <div class="cc-ledger-row" data-ev-id="${escHtml(e.id)}">
+        <div class="cc-ledger-top">
+          <span class="cc-ledger-id">[${escHtml(e.id)}]</span>
+          <span class="cc-ledger-age cc-age-${age}">${age}</span>
+          <button class="cc-ledger-del" title="Delete this event (manual only — the ledger is never auto-pruned)" data-ev-del="${escHtml(e.id)}">✖</button>
+        </div>
+        <div class="cc-ledger-what" contenteditable="true" data-ev-field="what">${escHtml(e.what)}</div>
+        <div class="cc-ledger-meta">
+          imp <span contenteditable="true" data-ev-field="imp">${escHtml(e.importance)}</span> ·
+          turn <span contenteditable="true" data-ev-field="turn">${escHtml(e.turn)}</span> ·
+          witnesses <span contenteditable="true" data-ev-field="witnesses">${escHtml(who)}</span>
+        </div>
+      </div>`;
+    }).join('');
+}
+
 function render() {
     if (!$container) return;
     const state = getState();
@@ -47,21 +75,7 @@ function render() {
         return true;
     });
 
-    const rows = shown.length ? shown.map(e => {
-        const cells = (e.witnesses || []).map(w => findCell(w)?.name || w).join(', ') || 'nobody';
-        return `
-      <div class="cc-ledger-row" data-ev-id="${e.id}">
-        <span class="cc-ledger-id">[${e.id}]</span>
-        <span class="cc-ledger-age cc-age-${ageLabel(e, currentTurn)}">${ageLabel(e, currentTurn)}</span>
-        <span class="cc-ledger-what" contenteditable="true" data-ev-field="what">${e.what}</span>
-        <span class="cc-ledger-meta">
-          imp <span contenteditable="true" data-ev-field="imp">${e.importance}</span> ·
-          turn <span contenteditable="true" data-ev-field="turn">${e.turn}</span> ·
-          witnesses <span contenteditable="true" data-ev-field="witnesses">${cells}</span>
-        </span>
-        <button class="cc-ledger-del" title="Delete this event (manual only — the ledger is never auto-pruned)" data-ev-del="${e.id}">✖</button>
-      </div>`;
-    }).join('') : '<div class="cc-ledger-none">No events match. (Ledger total: ' + ledger.length + ')</div>';
+    const rows = rowsHtml(shown, ledger.length, currentTurn);
 
     $container.html(`
     <div class="character_cells_settings">
@@ -235,21 +249,7 @@ function updateList() {
             ${ledger.length} event(s) · turn ${currentTurn} · shown: ${shown.length}
             — the ledger is immutable; this browser is for inspection and <i>manual</i> fixes only.`);
 
-    const rows = shown.length ? shown.map(e => {
-        const cells = (e.witnesses || []).map(w => findCell(w)?.name || w).join(', ') || 'nobody';
-        return `
-      <div class="cc-ledger-row" data-ev-id="${e.id}">
-        <span class="cc-ledger-id">[${e.id}]</span>
-        <span class="cc-ledger-age cc-age-${ageLabel(e, currentTurn)}">${ageLabel(e, currentTurn)}</span>
-        <span class="cc-ledger-what" contenteditable="true" data-ev-field="what">${e.what}</span>
-        <span class="cc-ledger-meta">
-          imp <span contenteditable="true" data-ev-field="imp">${e.importance}</span> ·
-          turn <span contenteditable="true" data-ev-field="turn">${e.turn}</span> ·
-          witnesses <span contenteditable="true" data-ev-field="witnesses">${cells}</span>
-        </span>
-        <button class="cc-ledger-del" title="Delete this event (manual only — the ledger is never auto-pruned)" data-ev-del="${e.id}">✖</button>
-      </div>`;
-    }).join('') : '<div class="cc-ledger-none">No events match. (Ledger total: ' + ledger.length + ')</div>';
+    const rows = rowsHtml(shown, ledger.length, currentTurn);
     $container.find('.cc-ledger-list').html(rows);
 }
 
