@@ -14,11 +14,16 @@ import { LOG_PREFIX } from './config.js';
 
 // ================================================================ extraction
 
-/** Most recent <internal_states> block in the chat (newest message first). */
+/**
+ * Most recent <internal_states> block in the chat (newest message first).
+ * Models sometimes omit the closing </internal_states> tag (block ends at
+ * <!-- GFX_END --> or end of message), so the block boundary accepts all
+ * three endings: closing tag, GFX_END comment, or end of text.
+ */
 export function findLatestStateBlock(messages) {
     for (let i = (messages || []).length - 1; i >= 0; i--) {
         const text = String(messages[i]?.mes || '');
-        const blocks = text.match(/<internal_states[\s\S]*?<\/internal_states>/g);
+        const blocks = text.match(/<internal_states[\s\S]*?(?:<\/internal_states>|(?=<!-- GFX_END -->)|$)/g);
         if (blocks && blocks.length) return blocks[blocks.length - 1];
     }
     return null;
@@ -218,13 +223,13 @@ function parseUserBlock(text) {
         const line = rawLine.trim();
         let m;
         if ((m = line.match(/^-?\s*Inv:\s*(.+)$/i))) {
-            user.inventory = splitList(m[1]);
+            user.inventory = splitList(m[1]).filter(t => !/^none\.?$/i.test(t));
         } else if ((m = line.match(/^-?\s*Titles\/Skills:\s*(.+)$/i))) {
             const titlesPart = m[1].replace(/^Titles:\s*/i, '');
-            user.titles.push(...splitList(titlesPart).map(t => t.replace(/\.+$/, '').trim()).filter(Boolean));
+            user.titles.push(...splitList(titlesPart).map(t => t.replace(/\.+$/, '').trim()).filter(t => t && !/^none\.?$/i.test(t)));
         } else if ((m = line.match(/^-?\s*(Unique|Extra|Common|Intrinsic|Resist|Arts):\s*(.+)$/i))) {
             const cat = m[1][0].toUpperCase() + m[1].slice(1).toLowerCase();
-            user.titles.push(...splitList(m[2]).map(t => `${cat}: ${t.replace(/\.+$/, '').trim()}`));
+            user.titles.push(...splitList(m[2]).map(t => `${cat}: ${t.replace(/\.+$/, '').trim()}`).filter(t => !/:\s*none\.?$/i.test(t)));
         } else if ((m = line.match(/^-?\s*Status:\s*(.+)$/i))) {
             user.status = m[1].trim();
         } else if ((m = line.match(/^-?\s*Mods:\s*(.+)$/i))) {

@@ -27,8 +27,11 @@ import { LOG_PREFIX } from './config.js';
  */
 export function stripInternalStates(text) {
     let s = String(text || '');
-    s = s.replace(/<!-- GFX_START -->\s*<internal_states[\s\S]*?<\/internal_states>\s*<!-- GFX_END -->/g, '');
-    s = s.replace(/<internal_states[\s\S]*?<\/internal_states>/g, '');
+    // Models sometimes omit the closing </internal_states> tag (block ends at
+    // <!-- GFX_END --> or end of message) — accept all three block endings.
+    const blockRe = /<internal_states[\s\S]*?(?:<\/internal_states>|(?=<!-- GFX_END -->)|$)/g;
+    s = s.replace(/<!-- GFX_START -->\s*<internal_states[\s\S]*?(?:<\/internal_states>|(?=<!-- GFX_END -->)|$)\s*<!-- GFX_END -->/g, '');
+    s = s.replace(blockRe, '');
     s = s.replace(/\n{3,}/g, '\n\n').trim();
     return s;
 }

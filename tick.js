@@ -271,7 +271,7 @@ async function refereeCall() {
     }
     if (userIdx < 0) return;
     const userText = String(chat[userIdx].mes || '').slice(0, 2000);
-    const prevAi = userIdx > 0 ? String(chat[userIdx - 1].mes || '').replace(/<internal_states[\s\S]*?<\/internal_states>/g, '').slice(0, 1500) : '';
+    const prevAi = userIdx > 0 ? String(chat[userIdx - 1].mes || '').replace(/<internal_states[\s\S]*?(?:<\/internal_states>|(?=<!-- GFX_END -->)|$)/g, '').slice(0, 1500) : '';
     const s = getState();
     const cells = s.cells.map(c => `${c.name} (id ${c.id}${c.fixed ? ', user' : `, bond ${c.bonds?.user ?? 0}`}, inv: ${(c.inventory || []).join('/') || 'none'}, titles: ${(c.titles || []).join('/') || 'none'}, mods: ${c.mods || 'none'})`).join('; ');
     const prompt = `TRACKED STATE: ${cells}
