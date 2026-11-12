@@ -258,6 +258,7 @@
 .cc-ledger-summary { font-size: 12px; opacity: 0.75; margin: 6px 0; }
 .cc-ledger-filters { display: flex; gap: 6px; margin-bottom: 8px; }
 .cc-ledger-filters input, .cc-ledger-filters select { flex: 1; min-width: 0; }
+.cc-ledger-clearall { flex: 0 0 auto; font-size: 13px; padding: 0 6px; }
 .cc-ledger-list { max-height: 320px; overflow-y: auto; border: 1px solid var(--SmartThemeBorderColor, #444); border-radius: 6px; padding: 4px; }
 .cc-ledger-row { display: flex; align-items: baseline; gap: 6px; padding: 3px 2px; border-bottom: 1px solid var(--SmartThemeBorderColor30, #333); font-size: 12px; }
 .cc-ledger-row:last-child { border-bottom: none; }

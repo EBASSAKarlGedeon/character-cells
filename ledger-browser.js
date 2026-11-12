@@ -105,6 +105,7 @@ function render() {
             — the ledger is immutable; this browser is for inspection and <i>manual</i> fixes only.
           </div>
           <div class="cc-ledger-filters">
+            <button id="cc_ledger_clear_all" class="cc-ledger-del cc-ledger-clearall" title="Delete ALL ledger events (irreversible)">✖</button>
             <input id="cc_ledger_filter_text" class="text_input" placeholder="Filter text…" value="${filter.text}">
             <select id="cc_ledger_filter_who" class="text_input"><option value="">all characters</option>${whoOptions}</select>
             <select id="cc_ledger_filter_imp" class="text_input">
@@ -193,6 +194,31 @@ function bind() {
             if (JSON.stringify(ids) !== JSON.stringify(ev.witnesses)) { ev.witnesses = ids; changed = true; }
         }
         if (changed) { saveChatDebounced(); updateInjection(); }
+    });
+
+    // Clear ALL events: two-click arm/confirm (same pattern as the panel's
+    // "Reset internal states") — first click arms for 5s, second click wipes.
+    let clearAllArmed = false;
+    $container.on('click', '#cc_ledger_clear_all', function () {
+        const $btn = $(this);
+        const ledger = getLedger();
+        const disarm = () => {
+            clearAllArmed = false;
+            $btn.text('✖').prop('title', 'Delete ALL ledger events (irreversible)').css('color', '');
+        };
+        if (!ledger.length) { toastr.info('Ledger is already empty.', 'Character Cells'); return; }
+        if (!clearAllArmed) {
+            clearAllArmed = true;
+            $btn.text('⚠').prop('title', `Really delete ALL ${ledger.length} event(s)? Click again`).css('color', 'var(--warning, #c0392b)');
+            setTimeout(disarm, 5000);
+            return;
+        }
+        disarm();
+        const n = ledger.length;
+        getState().ledger = [];
+        console.warn(`${LOG_PREFIX} ledger browser: CLEARED all ${n} event(s) (manual)`);
+        saveChatDebounced(); updateInjection(); updateList();
+        toastr.warning(`Ledger cleared — ${n} event(s) deleted.`, 'Character Cells');
     });
 
     $container.on('click', '[data-ev-del]', function () {
