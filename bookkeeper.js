@@ -59,6 +59,8 @@ export function buildStateSummary() {
         const base = {
             id: c.id, name: c.name, tier: c.tier,
             bonds: c.bonds, agenda: c.agenda, status: c.status,
+            inv: c.inventory || [], titles: c.titles || [], mods: c.mods || '',
+            thoughts: c.thoughts || '',
         };
         // Relationship layer (slice 9): show the card fields the bookkeeper maintains.
         if (c.rel) {
@@ -87,6 +89,10 @@ export function buildStateSummary() {
         }));
     }
     if ((world.quests || []).length) out.quests = world.quests;
+    // Env/physics: the grammar says "only when CHANGED or first established" —
+    // the bookkeeper must see the current values to judge that.
+    if (world.env) out.env = world.env;
+    if (world.physics) out.physics = world.physics;
     if ((world.notes || []).length) {
         out.notes = world.notes.map(n => ({ id: n.id, type: n.type, text: n.text }));
     }
@@ -106,7 +112,7 @@ export function buildStateSummary() {
     return JSON.stringify(out);
 }
 
-const SYSTEM_PROMPT = `You are a state tracker for a roleplay session. You read a short scene and the current tracked state, then output state-change commands. You never write prose, never narrate, never comment. Output ONLY command lines, one per line, in the exact grammar given. If nothing in the scene changes the state, output nothing.`;
+const SYSTEM_PROMPT = `You are a state tracker for a roleplay session. You read a short scene and the current tracked state, then output state-change commands. You never write prose, never narrate, never comment. Output ONLY command lines, one per line, in the exact grammar given. Emit a command only when the scene (or the established card/lorebook background) supports a change — and when the state has a gap the material fills, fill it.`;
 
 function buildBookkeeperPrompt(sceneText, loreContext = '') {
     const createGrammar = settings.bookkeeperAutoCells ? `
