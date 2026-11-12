@@ -24,7 +24,7 @@ export function resolveCell(token) {
 
 /** Parse one command line into { op, raw } or null. */
 export function parseCommand(line) {
-    const m = line.match(/^\s*(memory_add|witness|bond|agenda_step|agenda_set|status|presence|appear|chekhov|turn|task|note_add|note_del|inv|title|thought|plant|nowsim|char_add|faction_add|quest_add|trust|rel|env|physics)\s*\((.*)\)\s*;?\s*$/i);
+    const m = line.match(/^\s*(memory_add|witness|bond|agenda_step|agenda_set|status|presence|appear|chekhov|turn|task|note_add|note_del|inv|title|thought|plant|nowsim|char_add|faction_add|quest_add|trust|rel|env|physics|combat|mods)\s*\((.*)\)\s*;?\s*$/i);
     if (!m) return null;
     return { op: m[1].toLowerCase(), raw: m[2] };
 }
@@ -253,6 +253,29 @@ export function applyCommand(cmd, currentTurn, sceneRoles, opts = {}) {
             if (!text) return `skip: no ${cmd.op} text`;
             getState().world[cmd.op] = text;
             return `${cmd.op}: ${text.slice(0, 40)}`;
+        }
+        case 'combat': {
+            // FF5 COMBAT drawer: fight shape (mode), who fights whom (engagement),
+            // persistent wounds, this scene's single beat (exchange).
+            // Only supplied fields change; mode="off" ends the fight.
+            const c = getState().world.combat || (getState().world.combat = { mode: 'N/A', engagement: 'N/A', wounds: 'None', exchange: 'N/A' });
+            const off = val(kv.mode).toLowerCase() === 'off';
+            if (off) { c.mode = 'N/A'; c.engagement = 'N/A'; c.exchange = 'N/A'; c.wounds = 'None'; return 'combat: off'; }
+            const changed = [];
+            for (const [field, key] of [['mode', 'mode'], ['engagement', 'engagement'], ['wounds', 'wounds'], ['exchange', 'exchange']]) {
+                if (kv[key] !== undefined) { const v = val(kv[key]); if (v && c[field] !== v) { c[field] = v; changed.push(`${field}=${v.slice(0, 30)}`); } }
+            }
+            return changed.length ? `combat: ${changed.join(', ')}` : 'combat: unchanged';
+        }
+        case 'mods': {
+            // Active roll modifiers for the dice engine (tick.js sums the signed
+            // numbers). FULL rewrite semantics: the line replaces the old one.
+            const cell = resolveCell(parts[0]);
+            const text = val(kv.mods ?? parts.slice(1).join(','));
+            if (!cell) return 'skip: unknown cell';
+            if (!text) return 'skip: no mods';
+            cell.mods = text;
+            return `mods: ${cell.name} = ${text.slice(0, 40)}`;
         }
         case 'char_add': {
             // Auto character creation: fuzzy-match FIRST (name variants merge
