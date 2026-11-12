@@ -229,6 +229,10 @@ async function runBookkeeper(token) {
             console.log(`${LOG_PREFIX} bookkeeper applied (${applied.length} change(s)):\n  ` + applied.join('\n  '));
             updateInjection();
             renderChatTable();
+            // Live-refresh the ledger browser so new events appear without a
+            // chat switch. Dynamic import: ledger-browser imports THIS module
+            // statically — a static back-import would create a cycle.
+            import('./ledger-browser.js').then(m => m.refreshLedgerList());
             saveChatDebounced();
         } else {
             console.log(`${LOG_PREFIX} bookkeeper ran: 0 changes this turn`);
@@ -329,6 +333,7 @@ Rules for this pass:
             markRelStamps();
             updateInjection();
             renderChatTable();
+            import('./ledger-browser.js').then(m => m.refreshLedgerList());
             saveChatDebounced();
         }
         console.log(`${LOG_PREFIX} repair pass: ${changes.length} change(s) applied${changes.length ? ':\n  ' + changes.join('\n  ') : ''}`);

@@ -17,7 +17,7 @@ import { renderStateHtml } from './render.js';
 import { digestStats } from './digest.js';
 import { setDigestInfo } from './render.js';
 import { initChatTable, renderChatTable } from './chat-table.js';
-import { initLedgerBrowser } from './ledger-browser.js';
+import { initLedgerBrowser, refreshLedgerList } from './ledger-browser.js';
 import { updateInjection, setInjectionEnabled } from './inject.js';
 import { initBookkeeper, initBookkeeperEvents, isBookkeeperEnabled, setBookkeeperEnabled, runRepairPass } from './bookkeeper.js';
 import { pinTier, unpinTier, isAutoTierEnabled, setAutoTierEnabled, applyAutoTier } from './tiers.js';
@@ -54,6 +54,7 @@ function openPanel() {
 }
 
 function refreshPanelIfOpen() {
+    refreshLedgerList(); // ledger browser lives in the extensions drawer — refresh regardless of the panel
     const dlg = $('#cc_dialog');
     if (!dlg.length) return;
     // Keep which drawers are open and the scroll position across redraws.

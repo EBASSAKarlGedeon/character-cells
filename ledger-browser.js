@@ -277,6 +277,15 @@ function initProfileDropdown() {
     }
 }
 
+/** Public refresh hook: re-render just the dynamic list parts (summary,
+ * witness options, rows) inside the already-mounted drawer. Called by the
+ * bookkeeper / backfill / slash commands after state changes so the browser
+ * shows new ledger events WITHOUT a chat switch or manual filter touch. */
+export function refreshLedgerList() {
+    if (!$container) return;
+    updateList();
+}
+
 /** Mount into the Extensions panel (extensions_settings2 column). */
 export function initLedgerBrowser() {
     $container = $('<div id="character_cells_container" class="extension_container"></div>');

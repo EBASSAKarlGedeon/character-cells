@@ -35,9 +35,13 @@ export async function cleanCopyChat() {
         toastr.warning('No chat open to copy.', 'Character Cells');
         return;
     }
-    const srcName = char.chat || 'chat';
+    // NOTE: SillyTavern chat names (characters[this_chid].chat, saveChat's chatName,
+    // openCharacterChat's argument) must NOT carry the .jsonl extension — the server
+    // appends it on both save and get. Adding it here doubled the extension on disk
+    // (.jsonl.jsonl) and made the copy's name grow on every re-copy.
+    const srcName = String(char.chat || 'chat').replace(/(\.jsonl)+$/g, '');
     const stamp = new Date().toISOString().slice(0, 16).replace('T', ' ').replace(':', 'h');
-    const newName = `${srcName} (cells-clean) ${stamp}.jsonl`;
+    const newName = `${srcName} (cells-clean) ${stamp}`;
 
     let removed = 0;
     let removedSwipes = 0; // C9: blocks inside swipes are counted and stripped too
@@ -224,6 +228,10 @@ export async function backfillLedger(progress = null) {
             state.backfill.virtualTurn = virtualTurn; // C4
             state.backfill.failed = [...pendingFailed];
             saveChatDebounced();
+            // Live-refresh the ledger browser per batch so a backfill watched from
+            // the extensions drawer streams events in. Dynamic import avoids a cycle
+            // (ledger-browser does not import backfill, but keep the pattern uniform).
+            import('./ledger-browser.js').then(m => m.refreshLedgerList());
             progress?.(`Batch ${batches} — message ${Math.min(i, chat.length)}/${chat.length} (${totalCommands} commands${pendingFailed.size ? `, ${pendingFailed.size} failed` : ''})`);
         }
 

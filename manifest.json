@@ -7,8 +7,5 @@
     "css": "style.css",
     "author": "Loreweaver",
     "version": "0.2.0",
-    "homePage": "",
-    "hooks": {
-        "activate": "init"
-    }
+    "homePage": ""
 }
