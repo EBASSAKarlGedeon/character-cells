@@ -9,9 +9,9 @@
 // The command grammar lives in commands.js (shared with the backfill).
 
 import { chat, saveChatDebounced, eventSource, event_types } from '../../../../script.js';
-import { getState, getLedger, chatToken, sameChat, hasState } from './state.js';
+import { getState, getLedger, chatToken, sameChat, hasState, findCell } from './state.js';
 import { updateInjection } from './inject.js';
-import { parseCommand, applyCommand, AUTO_CREATE_CAP } from './commands.js';
+import { parseCommand, applyCommand, resolveCell, AUTO_CREATE_CAP } from './commands.js';
 import { stageOf, markRelStamps } from './rel.js';
 import { logScene, applyAutoTier } from './tiers.js';
 import { seedOrigin, buildLoreContext } from './origin.js';
@@ -344,4 +344,58 @@ Rules for this pass:
     } finally {
         repairing = false;
     }
+}
+
+// ---------------------------------------------------------------- witness repair
+
+/**
+ * Witness-repair pass: the pre-040f04e parser bug truncated every
+ * memory_add's who list to its FIRST witness, so old events systematically
+ * under-list. This deterministic pass (NO model call) widens each event's
+ * witness list to every tracked cell whose name or alias appears in the
+ * event text — for ALL events, or only those matching optional filters
+ * (same shape as the ledger browser's).
+ * @param {{text?:string, who?:string, imp?:string}} [filters]
+ * @returns {{widened:number, checked:number, perEvent:{id:string,added:string[]}[]}}
+ */
+export function repairWitnesses(filters = null) {
+    const ledger = getLedger();
+    let checked = 0, widened = 0;
+    const perEvent = [];
+    for (const ev of ledger) {
+        if (filters && (!matchLedgerFilters(ev, filters))) continue;
+        checked++;
+        const added = [];
+        const text = String(ev.what || '').toLowerCase();
+        for (const c of getState().cells) {
+            if (ev.witnesses.includes(c.id)) continue;
+            // Match the cell's current name or any alias (old names kept by
+            // char_rename) as a whole-word-ish mention in the event text.
+            const names = [c.name, ...(c.aliases || [])].filter(Boolean);
+            if (names.some(n => text.includes(String(n).toLowerCase()))) {
+                ev.witnesses.push(c.id);
+                added.push(c.name);
+            }
+        }
+        if (added.length) {
+            widened++;
+            perEvent.push({ id: ev.id, added });
+        }
+    }
+    if (widened) {
+        saveChatDebounced();
+        updateInjection();
+        import('./ledger-browser.js').then(m => m.refreshLedgerList());
+    }
+    console.log(`${LOG_PREFIX} witness repair: ${widened}/${checked} event(s) widened`, perEvent);
+    return { widened, checked, perEvent };
+}
+
+/** Shared filter logic with the ledger browser (text/who/imp), kept local to
+ * avoid a cycle — browser imports bookkeeper for setBookkeeperEnabled. */
+function matchLedgerFilters(e, { text = '', who = '', imp = '' }) {
+    if (imp && e.importance !== Number(imp)) return false;
+    if (who && !(e.witnesses || []).includes(who)) return false;
+    if (text && !e.what.toLowerCase().includes(String(text).toLowerCase())) return false;
+    return true;
 }

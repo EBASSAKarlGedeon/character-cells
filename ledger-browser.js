@@ -12,7 +12,7 @@ import { eventSource, event_types, saveChatDebounced, name1 } from '../../../../
 import { getState, getLedger, findCell, slug, addEvent } from './state.js';
 import { updateInjection } from './inject.js';
 import { getSettings, persistSettings } from './settings.js';
-import { setBookkeeperEnabled } from './bookkeeper.js';
+import { setBookkeeperEnabled, repairWitnesses } from './bookkeeper.js';
 import { AUTO_CREATE_CAP } from './commands.js';
 import { LOG_PREFIX } from './config.js';
 
@@ -58,6 +58,20 @@ function rowsHtml(shown, ledgerTotal, currentTurn) {
         </div>
       </div>`;
     }).join('');
+}
+
+/** A ledger clear also invalidates the backfill's resume bookkeeping — its
+ * progress cursor points into a ledger that no longer exists. */
+function clearBackfillBookkeeping() {
+    const bf = getState().backfill;
+    if (bf && (Number(bf.progress) > 0 || (Array.isArray(bf.failed) && bf.failed.length))) {
+        delete bf.progress;
+        delete bf.failed;
+        delete bf.virtualTurn;
+        console.log(`${LOG_PREFIX} ledger browser: backfill resume state cleared with the ledger`);
+        return true;
+    }
+    return false;
 }
 
 /** True when one event passes the active filter bar (text / who / imp). */
@@ -110,6 +124,7 @@ function render() {
           <div class="cc-ledger-filters">
             <button id="cc_ledger_clear_all" class="cc-ledger-del cc-ledger-clearall" title="Delete ALL ledger events (irreversible)">✖</button>
             <button id="cc_ledger_clear_shown" class="cc-ledger-del cc-ledger-clearall" title="Delete only the events matching the current filters (irreversible)">✖ <small>shown</small></button>
+            <button id="cc_ledger_fix_witnesses" class="menu_button" title="Widen every event's witness list to every tracked character whose name/alias appears in the event text — repairs pre-parser-fix truncation">Fix witnesses</button>
             <input id="cc_ledger_filter_text" class="text_input" placeholder="Filter text…" value="${filter.text}">
             <select id="cc_ledger_filter_who" class="text_input"><option value="">all characters</option>${whoOptions}</select>
             <select id="cc_ledger_filter_imp" class="text_input">
@@ -221,10 +236,31 @@ function bind() {
         armClear($(this), 'all', ledger.length, '✖', 'Delete ALL ledger events (irreversible)', 'Ledger is already empty.', () => {
             console.warn(`${LOG_PREFIX} ledger browser: CLEARED all ${ledger.length} event(s) (manual)`);
             getState().ledger = [];
+            const bfCleared = clearBackfillBookkeeping();
             saveChatDebounced(); updateInjection(); updateList();
-            toastr.warning(`Ledger cleared — ${ledger.length} event(s) deleted.`, 'Character Cells');
+            toastr.warning(`Ledger cleared — ${ledger.length} event(s) deleted.${bfCleared ? ' Backfill will start from the beginning.' : ''}`, 'Character Cells');
         });
     });
+    $container.on('click', '#cc_ledger_fix_witnesses', async function () {
+        const $btn = $(this);
+        $btn.prop('disabled', true);
+        try {
+            // Filters apply: clear-all respects nothing, fix-witnesses respects
+            // the active filters (an empty filter set repairs the whole ledger).
+            const f = filter.text || filter.who || filter.imp
+                ? { text: filter.text, who: filter.who, imp: filter.imp } : null;
+            const { widened, checked, perEvent } = await repairWitnesses(f);
+            const detail = perEvent.slice(0, 5).map(p => `${p.id} +${p.added.join(',')}`).join('; ');
+            toastr[widened ? 'success' : 'info'](
+                widened
+                    ? `Witnesses widened on ${widened}/${checked} event(s).${detail ? ` e.g. ${detail}` : ''}`
+                    : `No widening needed (${checked} event(s) checked).`,
+                'Character Cells', { timeOut: 8000 });
+        } finally {
+            $btn.prop('disabled', false);
+        }
+    });
+
     $container.on('click', '#cc_ledger_clear_shown', function () {
         const ledger = getLedger();
         const ids = ledger.filter(matchFilters).map(e => e.id);
@@ -232,8 +268,9 @@ function bind() {
             const idSet = new Set(ids);
             console.warn(`${LOG_PREFIX} ledger browser: CLEARED ${ids.length} shown event(s) matching the filters (manual)`);
             getState().ledger = getLedger().filter(e => !idSet.has(e.id));
+            const bfCleared = clearBackfillBookkeeping();
             saveChatDebounced(); updateInjection(); updateList();
-            toastr.warning(`${ids.length} shown event(s) deleted.`, 'Character Cells');
+            toastr.warning(`${ids.length} shown event(s) deleted.${bfCleared ? ' Backfill will start from the beginning.' : ''}`, 'Character Cells');
         });
     });
 
