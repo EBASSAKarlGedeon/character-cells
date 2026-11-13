@@ -18,6 +18,8 @@ const settings = {
     mainCharacterMode: false, // perspective rebuild: block built from ONE character's knowledge
     autoChekhov: true,        // tick engine fires Chekhov bullets by d20 threshold
     worldSimEnabled: true,    // tick engine rolls the World Sim table each turn
+    repairHistoryMsgs: 6,     // repair pass evidence window: recent messages fed as context
+    repairLedgerEvents: 20,   // events shown in CURRENT STATE's recent_events (-1 = ALL events, 0 = none)
 };
 
 let _extension_settings = null;
@@ -37,6 +39,8 @@ export function initSettings(extension_settings) {
         if (typeof stored.mainCharacterMode === 'boolean') settings.mainCharacterMode = stored.mainCharacterMode;
         if (typeof stored.autoChekhov === 'boolean') settings.autoChekhov = stored.autoChekhov;
         if (typeof stored.worldSimEnabled === 'boolean') settings.worldSimEnabled = stored.worldSimEnabled;
+        if (typeof stored.repairHistoryMsgs === 'number' && stored.repairHistoryMsgs >= 1) settings.repairHistoryMsgs = stored.repairHistoryMsgs;
+        if (typeof stored.repairLedgerEvents === 'number' && (stored.repairLedgerEvents === -1 || stored.repairLedgerEvents >= 0)) settings.repairLedgerEvents = stored.repairLedgerEvents;
     }
 }
 

@@ -112,6 +112,14 @@ function render() {
             <label for="cc_set_maxtokens">Profile max tokens <span class="cc-bk-profile-note">(sent as max_tokens on every bookkeeper-profile call; reasoning models spend it on thinking before the answer — default 32000)</span></label>
             <input id="cc_set_maxtokens" type="number" class="text_pole" min="256" max="200000" step="1000" value="${getSettings().profileMaxTokens}">
           </div>
+          <div class="cc-bk-profile">
+            <label for="cc_set_repair_ledger">Repair pass: ledger events <span class="cc-bk-profile-note">(how many recent_events the Repair pass sees in CURRENT STATE; -1 = the whole ledger, 0 = none — default 20)</span></label>
+            <input id="cc_set_repair_ledger" type="number" class="text_pole" min="-1" max="100000" step="1" value="${getSettings().repairLedgerEvents ?? 20}">
+          </div>
+          <div class="cc-bk-profile">
+            <label for="cc_set_repair_history">Repair pass: recent messages <span class="cc-bk-profile-note">(how many recent messages the Repair pass reads as evidence beyond CURRENT STATE — default 6)</span></label>
+            <input id="cc_set_repair_history" type="number" class="text_pole" min="1" max="500" step="1" value="${getSettings().repairHistoryMsgs ?? 6}">
+          </div>
           <div class="cc-bk-toggles">
             <label class="cc-bk-toggle"><input type="checkbox" id="cc_set_bookkeeper" ${getSettings().bookkeeperEnabled ? 'checked' : ''}> Bookkeeper state tracking (auto-updates state after each reply)</label>
             <label class="cc-bk-toggle"><input type="checkbox" id="cc_set_chattables" ${getSettings().chatTables !== false ? 'checked' : ''}> Show the internal-states table under the latest AI message (display only — never sent to the model)</label>
@@ -167,6 +175,22 @@ function bind() {
         const v = Math.round(Number($(this).val()));
         getSettings().profileMaxTokens = v >= 256 ? v : 32000;
         $(this).val(getSettings().profileMaxTokens);
+        persistSettings();
+    });
+    $container.on('change', '#cc_set_repair_ledger', function () {
+        // -1 = all events; anything else clamps to [0, ∞) with 0 for junk input.
+        let v = Math.round(Number($(this).val()));
+        v = v === -1 ? -1 : Math.max(0, v || 0);
+        getSettings().repairLedgerEvents = v;
+        $(this).val(v);
+        persistSettings();
+    });
+    $container.on('change', '#cc_set_repair_history', function () {
+        // Min 1: an audit with no history window can still run off CURRENT STATE,
+        // but 0 reads as a mistake, not an intent.
+        const v = Math.max(1, Math.round(Number($(this).val())) || 6);
+        getSettings().repairHistoryMsgs = v;
+        $(this).val(v);
         persistSettings();
     });
     $container.on('change', '#cc_set_autocells', function () {

@@ -77,7 +77,11 @@ export function buildStateSummary() {
     const ledger = getLedger();
     if (ledger.length) {
         // Recent events WITH ids, so the bookkeeper can attach witnesses to them.
-        out.recent_events = ledger.slice(-20).map(e => ({ id: e.id, what: e.what, w: e.witnesses }));
+        // -1 = ALL events (repair pass on a fully backfilled ledger); 0 = none.
+        // (slice(-0) returns the WHOLE array, hence the explicit nEvents? guard.)
+        const raw = Number(getSettings().repairLedgerEvents ?? 20);
+        const nEvents = raw === -1 ? ledger.length : Math.max(0, raw || 0);
+        out.recent_events = (nEvents ? ledger.slice(-nEvents) : []).map(e => ({ id: e.id, what: e.what, w: e.witnesses }));
     }
     if ((world.chekhov || []).length) {
         out.chekhov = world.chekhov.map(c => ({ id: c.id, text: c.text, status: c.status || 'active' }));
@@ -278,9 +282,11 @@ export async function runRepairPass() {
     const token = chatToken(); // B1: the repair belongs to THIS chat
     try {
         // Recent history gives the auditor context the state alone lacks; the
-        // last 6 non-system messages, uncapped text (the user pays tokens, not us).
+        // last N non-system messages (settings.repairHistoryMsgs, default 6),
+        // uncapped text (the user pays tokens, not us).
         const msgs = [];
-        for (let i = chat.length - 1; i >= 0 && msgs.length < 6; i--) {
+        const histMsgs = Math.max(1, Number(getSettings().repairHistoryMsgs) || 6);
+        for (let i = chat.length - 1; i >= 0 && msgs.length < histMsgs; i--) {
             const m = chat[i];
             if (m.is_system) continue;
             msgs.unshift(`${m.is_user ? getState().cells.find(c => c.fixed)?.name || 'User' : 'AI'}: ${String(m.mes || '').trim()}`);
